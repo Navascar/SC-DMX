@@ -25,6 +25,7 @@ TASKS = web.AppKey("tasks", list)
 UPDATE = web.AppKey("update", dict)
 STOP = web.AppKey("stop", asyncio.Event)
 EXIT = web.AppKey("exit", dict)
+OWN_NAMES = web.AppKey("own_names", set)   # імена цього комп'ютера для перевірки Host
 UPDATE_CHECK_INTERVAL = 3600
 OFFLINE_RETRY_S = 600
 # Програма працює, лише поки відкрите її вікно. Після закриття останнього вікна —
@@ -317,8 +318,64 @@ async def index(_request: web.Request) -> web.FileResponse:
     return web.FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-cache"})
 
 
+# ------------------------------------------------------------- захист ---
+def _host_name(host_header: str) -> str:
+    """Ім'я хоста із заголовка Host без порту: «127.0.0.1:8080» → «127.0.0.1», «[::1]:8080» → «::1»."""
+    h = (host_header or "").strip().lower()
+    if h.startswith("["):
+        return h[1:h.find("]")] if "]" in h else h[1:]
+    return h.rsplit(":", 1)[0] if h.count(":") == 1 else h
+
+
+def _own_names() -> set[str]:
+    import socket
+    names = {"localhost"}
+    try:
+        name = socket.gethostname().lower()
+        names |= {name, f"{name}.local", socket.getfqdn().lower()}
+    except OSError:
+        pass
+    return names
+
+
+def host_allowed(host_header: str, own_names: set[str]) -> bool:
+    """Захист від DNS rebinding: програма відповідає лише на свою адресу — localhost, IP-адресу
+    (керування з інших пристроїв мережі) або ім'я цього комп'ютера, а не на чужий домен."""
+    import ipaddress
+    name = _host_name(host_header)
+    if not name:
+        return False
+    try:
+        ipaddress.ip_address(name)
+        return True
+    except ValueError:
+        return name in own_names
+
+
+def origin_allowed(origin: str | None, host_header: str) -> bool:
+    """Захист від міжсайтового WebSocket: команди приймаються лише зі сторінки самої програми.
+    Без Origin звертаються не браузери (напр. інсталятор, щоб закрити програму) — їх пропускаємо."""
+    if not origin:
+        return True
+    from urllib.parse import urlsplit
+    parts = urlsplit(origin)
+    return parts.scheme in ("http", "https") and parts.netloc.lower() == (host_header or "").strip().lower()
+
+
+@web.middleware
+async def guard(request: web.Request, handler):
+    if not host_allowed(request.headers.get("Host", ""), request.app[OWN_NAMES]):
+        log.warning("Відхилено запит з чужим Host: %r", request.headers.get("Host"))
+        raise web.HTTPForbidden(text="Forbidden host")
+    if request.path == "/ws" and not origin_allowed(request.headers.get("Origin"), request.headers.get("Host", "")):
+        log.warning("Відхилено WebSocket з чужої сторінки: %r", request.headers.get("Origin"))
+        raise web.HTTPForbidden(text="Forbidden origin")
+    return await handler(request)
+
+
 def make_app(config_path: str, background: bool = False) -> web.Application:
-    app = web.Application()
+    app = web.Application(middlewares=[guard])
+    app[OWN_NAMES] = _own_names()
     app[WATCH] = {"enabled": not background, "seen": False, "last_close": None}
     app[ENGINE] = Engine(config_path)
     app[SOCKETS] = weakref.WeakSet()

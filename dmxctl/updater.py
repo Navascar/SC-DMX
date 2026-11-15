@@ -87,9 +87,10 @@ def install_from_zip(zip_path: Path, app_dir: Path = APP_DIR) -> None:
     with tempfile.TemporaryDirectory(prefix="sc-dmx-") as tmp:
         tmp = Path(tmp)
         with zipfile.ZipFile(zip_path) as zf:
-            for name in zf.namelist():  # захист від шляхів на кшталт ../../
+            root = tmp.resolve()
+            for name in zf.namelist():  # захист від шляхів на кшталт ../../ (zip-slip)
                 target = (tmp / name).resolve()
-                if not str(target).startswith(str(tmp.resolve())):
+                if target != root and not target.is_relative_to(root):
                     raise RuntimeError(f"небезпечний шлях в архіві: {name}")
             zf.extractall(tmp)
         src = _find_root(tmp)

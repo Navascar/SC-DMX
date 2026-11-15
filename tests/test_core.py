@@ -594,3 +594,56 @@ def test_scene_file_http(tmp_path):
             assert (await r.json())["format"] == "sc-dmx-scene"
             assert (await c.get("/api/scene", params={"name": "нема"})).status == 404
     asyncio.run(run())
+
+
+def test_server_rejects_foreign_origin_and_host(tmp_path):
+    """Чужий сайт у браузері не може керувати програмою (WebSocket) і не обходить її через DNS rebinding."""
+    import asyncio
+    from aiohttp import WSServerHandshakeError
+    from aiohttp.test_utils import TestClient, TestServer
+    from dmxctl.server import host_allowed, make_app, origin_allowed
+
+    names = {"localhost", "studio-pc", "studio-pc.local"}
+    assert host_allowed("127.0.0.1:8080", names) and host_allowed("[::1]:8080", names)
+    assert host_allowed("192.168.1.20:8080", names) and host_allowed("studio-pc:8080", names)
+    assert not host_allowed("evil.example:8080", names) and not host_allowed("", names)
+    assert origin_allowed(None, "127.0.0.1:8080")                         # не браузер (інсталятор)
+    assert origin_allowed("http://127.0.0.1:8080", "127.0.0.1:8080")
+    assert origin_allowed("http://192.168.1.20:8080", "192.168.1.20:8080")  # інший пристрій мережі
+    assert not origin_allowed("https://evil.example", "127.0.0.1:8080")
+    assert not origin_allowed("null", "127.0.0.1:8080")
+
+    async def run():
+        app = make_app(str(tmp_path / "cfg.json"), background=True)
+        async with TestClient(TestServer(app)) as c:
+            host = f"127.0.0.1:{c.port}"
+            ws = await c.ws_connect("/ws", headers={"Origin": f"http://{host}", "Host": host})
+            assert (await ws.receive_json())["type"] == "state"
+            await ws.close()
+            ws = await c.ws_connect("/ws", headers={"Host": host})            # без Origin — дозволено
+            await ws.close()
+            try:
+                await c.ws_connect("/ws", headers={"Origin": "https://evil.example", "Host": host})
+                raise AssertionError("чужий Origin мав бути відхилений")
+            except WSServerHandshakeError as e:
+                assert e.status == 403
+            r = await c.get("/api/library", headers={"Host": f"evil.example:{c.port}"})
+            assert r.status == 403
+            r = await c.get("/", headers={"Host": host})
+            assert r.status == 200
+    asyncio.run(run())
+
+
+def test_update_zip_slip_rejected(tmp_path):
+    import zipfile
+    from dmxctl.updater import install_from_zip
+    app = tmp_path / "app"
+    (app / "dmxctl").mkdir(parents=True)
+    (app / "dmxctl" / "__init__.py").write_text("old")
+    z = tmp_path / "u.zip"
+    with zipfile.ZipFile(z, "w") as zf:
+        zf.writestr("SC-DMX/dmxctl/__init__.py", "new")
+        zf.writestr("../sc-dmx-evil/x.txt", "pwn")     # сусідня тека з тим самим префіксом
+    with pytest.raises(RuntimeError, match="небезпечний шлях"):
+        install_from_zip(z, app)
+    assert (app / "dmxctl" / "__init__.py").read_text() == "old"
