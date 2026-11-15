@@ -93,9 +93,12 @@ function onMessage(m) {
 }
 
 let toastTimer;
+// усі написи — з великої літери
+const cap = (s) => (s ? String(s).charAt(0).toUpperCase() + String(s).slice(1) : s);
+
 function toast(text, info = false) {
   const t = $("#toast");
-  t.textContent = text;
+  t.textContent = cap(text);
   t.className = "toast" + (info ? " info" : "");
   t.hidden = false;
   clearTimeout(toastTimer);
@@ -119,9 +122,9 @@ function setOutput(o) {
   pill.classList.toggle("ok", !!o.ok);
   pill.classList.toggle("err", !o.ok);
   const names = { udmx: "uDMX", none: "Симулятор", enttec_pro: "DMX USB Pro", open_dmx: "Open DMX", artnet: "Art-Net", sacn: "sACN" };
-  $("#outputText").textContent = (o.type ? names[o.type] + " · " : "") + o.status;
+  $("#outputText").textContent = (o.type ? names[o.type] + " · " : "") + cap(o.status);
   pill.title = o.status;
-  $("#outStatus").textContent = o.status;
+  $("#outStatus").textContent = cap(o.status);
 }
 
 function syncMaster() {
@@ -162,7 +165,8 @@ function renderFixtures() {
       lamp,
       el("div", { className: "name", textContent: f.name }),
       el("div", { className: "addr", textContent: `DMX ${f.address}–${f.address + S.profiles[f.profile].length - 1}` }),
-      el("div", { className: "fx-badge", textContent: effIds.has(f.id) ? "● " + S.effects[S.effect.type] : "" }));
+      el("div", { className: "fx-badge", textContent: f.preset ? `● Пресет ${f.preset}`
+        : effIds.has(f.id) ? "● " + S.effects[S.effect.type] : "" }));
     tile.dataset.id = f.id;
     tile.onclick = (e) => pick(f.id, e.shiftKey);
     tile.ondblclick = (e) => {
@@ -228,7 +232,7 @@ function updateLive(m) {
   }
   if (m.output) setOutput(m.output);
   const det = $(".monitor-panel details");
-  $("#frameCounter").textContent = `· відправлено кадрів: ${m.frames}`;
+  $("#frameCounter").textContent = `· Відправлено кадрів: ${m.frames}`;
   if (det.open) {
     const cells = $("#monitor").children;
     for (let i = 0; i < 512; i++) {
@@ -300,8 +304,9 @@ function syncSliders() {
   const items = selItems();
   const sel = [...new Set(items.map((i) => i.f))];
   const desc = selDescription(items);
-  $("#selInfo").textContent = desc ? `вибрано ${desc}` : "нічого не вибрано";
-  $("#staticTarget").textContent = desc ? `для вибраних (${desc})` : "для всіх приладів";
+  $("#selInfo").textContent = desc ? `Вибрано ${desc}` : "Нічого не вибрано";
+  $("#staticTarget").textContent = desc ? `Для вибраних (${desc})` : "Для всіх приладів";
+  renderPresets();
   $("#clearLabel").textContent = desc ? "Очистити вибрані" : "Очистити все";
   // показувати лише ті канали, що є у вибраних приладів (або всі, якщо не вибрано)
   const roles = new Set();
@@ -380,11 +385,11 @@ function renderUpdate() {
   $("#aboutRepo").textContent = "github.com/" + u.repo;
   $("#aboutRepo").href = u.page || `https://github.com/${u.repo}/releases`;
   const busy = u.status === "installing" || u.status === "restarting";
-  $("#aboutUpdate").textContent = u.status === "checking" ? "перевірка…"
+  $("#aboutUpdate").textContent = cap(u.status === "checking" ? "Перевірка…"
     : busy ? u.progress
     : u.error ? u.error
-    : u.available ? `доступна версія ${u.latest}`
-    : u.latest ? `встановлено останню версію (${u.current})` : "";
+    : u.available ? `Доступна версія ${u.latest}`
+    : u.latest ? `Встановлено останню версію (${u.current})` : "");
   $("#checkUpdate").textContent = u.available ? "Оновити до " + u.latest : "Перевірити оновлення";
   $("#checkUpdate").disabled = busy || u.status === "checking";
   $("#aboutNotes").hidden = !(u.available && u.notes);
@@ -431,6 +436,39 @@ function bindUpdate() {
   $("#quitApp").onclick = () => {
     if (confirm("Вимкнути SC DMX? Прожектори згаснуть.")) { quitting = true; send({ cmd: "quit" }); }
   };
+}
+
+// --------------------------------------------------------------- пресети ---
+function presetTargets() {
+  const items = selItems();
+  const ids = [...new Set(items.map((i) => i.f.id))];
+  return ids.length ? S.fixtures.filter((f) => ids.includes(f.id)) : S.fixtures;
+}
+
+function buildPresets() {
+  const grid = $("#presetGrid");
+  if (grid.childElementCount === S.preset_count) return;
+  grid.replaceChildren();
+  for (let n = 1; n <= S.preset_count; n++) {
+    const lvl = Math.min(255, n * 10 + 5);
+    const b = el("button", { type: "button", textContent: n, title: `Пресет ${n} · Яскравість ${lvl}` });
+    b.onclick = () => send({ cmd: "preset", ids: [...selected], n });
+    grid.append(b);
+  }
+}
+
+function renderPresets() {
+  if (!S) return;
+  buildPresets();
+  const targets = presetTargets();
+  const used = new Map();
+  for (const f of targets) if (f.preset) used.set(f.preset, (used.get(f.preset) || 0) + 1);
+  [...$("#presetGrid").children].forEach((b, i) => {
+    const c = used.get(i + 1) || 0;
+    b.classList.toggle("on", c > 0 && c === targets.length);
+    b.classList.toggle("part", c > 0 && c < targets.length);
+  });
+  $("#presetOff").disabled = !targets.some((f) => f.preset);
 }
 
 // ---------------------------------------------------- статичні кольори ---
@@ -489,9 +527,13 @@ function renderEffects() {
   }
   const e = S.effect;
   if (e.type !== "none") sel.value = e.type;
-  $("#effSpeed").value = sliderFromSpeed(e.speed);
-  $("#effSpread").value = Math.round(e.spread * 100);
-  $("#effBySeg").checked = e.by_segment !== false;
+  // поки ефект не запущено, повзунки належать користувачу — не скидаємо їх оновленнями стану
+  if (e.type !== "none" || !renderEffects.synced) {
+    $("#effSpeed").value = sliderFromSpeed(e.speed);
+    $("#effSpread").value = Math.round(e.spread * 100);
+    $("#effBySeg").checked = e.by_segment !== false;
+    renderEffects.synced = true;
+  }
   updateEffLabels();
   $("#effectState").textContent = e.type !== "none" ? `▶ ${S.effects[e.type]} · ${e.ids.length} прил.` : "";
   renderEffColors();
@@ -551,7 +593,7 @@ function bindEffects() {
 function renderScenes() {
   const list = $("#sceneList");
   const names = Object.keys(S.scenes);
-  if (!names.length) return list.replaceChildren(el("li", { className: "hint", textContent: "Збережених сцен немає" }));
+  if (!names.length) return list.replaceChildren(el("li", { className: "info", textContent: "Збережених сцен немає" }));
   list.replaceChildren(...names.map((name) => {
     const li = el("li", {},
       el("button", { className: "btn", textContent: "▶ " + name,
@@ -1131,12 +1173,72 @@ function bindSettings() {
   };
 }
 
+// ------------------------------------------- введення чисел біля повзунків ---
+// Клік по значенню біля повзунка відкриває поле: можна вписати число.
+// Якщо значення показано у %, а повзунок має інший діапазон (0..255), число перераховується.
+function rangeFor(out) {
+  const prev = out.previousElementSibling;
+  if (prev && prev.matches("input[type=range]")) return prev;
+  return out.parentElement && out.parentElement.querySelector("input[type=range]");
+}
+
+function bindEditableOutputs() {
+  const mark = () => document.querySelectorAll("output").forEach((o) => {
+    if (!o.classList.contains("editable") && rangeFor(o)) {
+      o.classList.add("editable");
+      if (!o.title) o.title = "Клікніть, щоб ввести значення";
+    }
+  });
+  mark();
+  new MutationObserver(mark).observe(document.body, { childList: true, subtree: true });
+
+  document.addEventListener("click", (e) => {
+    const out = e.target.closest("output.editable");
+    if (!out || out.querySelector("input")) return;
+    const range = rangeFor(out);
+    if (!range) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const min = +range.min, max = +range.max;
+    const isPct = out.textContent.trim().endsWith("%") && max !== 100;
+    const shown = parseFloat(out.textContent) || 0;
+    const old = out.textContent;
+    const inp = el("input", { type: "number", className: "num-edit", value: Math.round(shown),
+                              min: isPct ? 0 : min, max: isPct ? 100 : max });
+    out.replaceChildren(inp);
+    inp.focus();
+    inp.select();
+    let done = false;
+    const finish = (apply) => {
+      if (done) return;
+      done = true;
+      const raw = parseFloat(inp.value);
+      out.textContent = old;
+      if (!apply || Number.isNaN(raw)) return;
+      let v = isPct ? Math.round((raw / 100) * max) : Math.round(raw);
+      v = Math.max(min, Math.min(max, v));
+      range.value = v;
+      range.dispatchEvent(new Event("input", { bubbles: true }));
+      range.dispatchEvent(new Event("change", { bubbles: true }));
+    };
+    inp.addEventListener("keydown", (ev) => {
+      ev.stopPropagation();
+      if (ev.key === "Enter") finish(true);
+      if (ev.key === "Escape") finish(false);
+    });
+    inp.addEventListener("blur", () => finish(true));
+    inp.addEventListener("click", (ev) => ev.stopPropagation());
+  }, true);
+}
+
 // ------------------------------------------------------------- старт ------
 function init() {
   buildSliders();
   buildSwatches();
   buildWheel();
   bindStatic();
+  $("#presetOff").onclick = () => send({ cmd: "preset", ids: [...selected], n: 0 });
+  bindEditableOutputs();
   bindUpdate();
   bindProps();
   bindTest();

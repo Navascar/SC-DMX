@@ -149,7 +149,7 @@ async def check_updates(app: web.Application) -> None:
         await set_update(app, status="idle", blocked=updater.can_self_update(), **info)
     except Exception as exc:  # noqa: BLE001 — немає інтернету тощо
         log.warning("Не вдалося перевірити оновлення: %s", exc)
-        await set_update(app, status="idle", error=f"не вдалося перевірити оновлення: {exc}")
+        await set_update(app, status="idle", error=f"Не вдалося перевірити оновлення: {exc}")
 
 
 async def apply_update(app: web.Application) -> None:
@@ -161,15 +161,15 @@ async def apply_update(app: web.Application) -> None:
     def progress(text: str) -> None:
         loop.call_soon_threadsafe(asyncio.ensure_future, set_update(app, progress=text))
 
-    await set_update(app, status="installing", error="", progress="підготовка…")
+    await set_update(app, status="installing", error="", progress="Підготовка…")
     try:
         await loop.run_in_executor(None, updater.download_and_install, upd["url"], progress)
     except Exception as exc:  # noqa: BLE001
         log.exception("Оновлення не вдалося")
-        await set_update(app, status="idle", error=f"оновлення не вдалося: {exc}")
+        await set_update(app, status="idle", error=f"Оновлення не вдалося: {exc}")
         return
     log.info("Оновлено до %s, перезапуск", upd["latest"])
-    await set_update(app, status="restarting", progress="перезапуск…")
+    await set_update(app, status="restarting", progress="Перезапуск…")
     await asyncio.sleep(0.5)
     request_stop(app, updater.RESTART_CODE)
 

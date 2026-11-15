@@ -11,7 +11,7 @@
 <header class="topbar">
   <h1>SC&nbsp;DMX</h1>
   <button id="outputPill" class="pill" title="Налаштування виходу">
-    <span class="dot"></span><span id="outputText">з'єднання…</span>
+    <span class="dot"></span><span id="outputText">З'єднання…</span>
   </button>
   <div class="master">
     <label for="master">Майстер</label>
@@ -40,26 +40,30 @@
       </div>
     </div>
     <div id="fixtureGrid" class="fixture-grid"></div>
-    <p class="hint">Клік — вибір одного приладу. <b>Shift + клік</b> — додати до вибору ще прилади. У приладів із сегментами клік по сегменту вибирає окремий сегмент. Подвійний клік — властивості приладу, правий клік — меню. Delete / 0 — очистити кольори.</p>
   </section>
 
   <section class="panel color-panel" data-zone="color">
     <div class="panel-head">
       <h2>Колір</h2>
-      <span id="selInfo" class="muted grow-text">нічого не вибрано</span>
+      <span id="selInfo" class="muted grow-text">Нічого не вибрано</span>
     </div>
     <div class="picker-row">
       <canvas id="wheel" width="220" height="220" aria-label="Колірне коло"></canvas>
       <div class="swatches" id="swatches"></div>
     </div>
     <div class="sliders" id="sliders"></div>
+    <div class="panel-head presets-head">
+      <h2>Пресети приладу</h2>
+      <button class="btn small" id="presetOff" type="button">Вимкнути пресет</button>
+    </div>
+    <div id="presetGrid" class="preset-grid"></div>
   </section>
 
   <section class="panel side-panel" data-zone="side">
     <div data-block="static">
     <div class="panel-head">
       <h2>Статичні кольори</h2>
-      <span id="staticTarget" class="muted">для всіх приладів</span>
+      <span id="staticTarget" class="muted">Для всіх приладів</span>
     </div>
     <div id="staticGrid" class="static-grid"></div>
     <div class="row static-actions">
@@ -67,7 +71,6 @@
       <button class="btn small" id="staticEdit">Редагувати</button>
       <button class="btn small" id="staticReset" hidden>Скинути до стандартних</button>
     </div>
-    <p class="hint">Клік заливає кольором вибрані прилади (або всі, якщо нічого не вибрано) і зупиняє на них ефект.</p>
     </div>
     <div data-block="effects">
     <div class="panel-head"><h2>Ефекти</h2><span id="effectState" class="muted"></span></div>
@@ -80,8 +83,7 @@
         <div id="effColors" class="eff-colors"></div>
         <button class="btn small" id="effAddColor" title="Додати поточний колір">＋</button>
       </div>
-      <label class="check"><input type="checkbox" id="effBySeg" checked> по сегментах (ефект біжить уздовж LED-барів)</label>
-      <p class="hint">Порожня палітра — ефект бере власні кольори приладів (для пульсації, стробу, біжучого вогню).</p>
+      <label class="check"><input type="checkbox" id="effBySeg" checked> По сегментах</label>
       <div class="row">
         <button class="btn primary" id="effApply">Запустити на вибраних</button>
         <button class="btn" id="effStop">Зупинити</button>
@@ -96,7 +98,7 @@
         <input id="sceneName" placeholder="Назва сцени">
         <button class="btn primary" id="sceneSave">Зберегти</button>
       </div>
-      <label class="check"><input type="checkbox" id="sceneWithEffect"> зберегти разом з ефектом</label>
+      <label class="check"><input type="checkbox" id="sceneWithEffect"> Зберегти разом з ефектом</label>
       <label>Час переходу, с <input id="sceneFade" type="number" min="0" max="60" step="0.5" value="1"></label>
       <ul id="sceneList" class="scene-list"></ul>
     </div>
@@ -137,11 +139,10 @@
       </label>
       <div data-for="udmx" class="row">
         <label class="grow">Пристрій
-          <select id="udmxIndex"><option value="0">перший знайдений uDMX</option></select>
+          <select id="udmxIndex"><option value="0">Перший знайдений uDMX</option></select>
         </label>
         <button class="btn" id="findUdmx" type="button">Знайти</button>
       </div>
-      <p class="hint" data-for="udmx">uDMX працює через libusb, а не через COM-порт. У Windows один раз встановіть драйвер <b>WinUSB</b> програмою Zadig (інструкція в README). Перевірка з консолі: <code>python -m dmxctl --check</code></p>
       <div data-for="enttec_pro open_dmx" class="row">
         <label class="grow">Послідовний порт
           <input id="outPort" list="portList" placeholder="/dev/ttyUSB0 або COM3">
@@ -150,14 +151,11 @@
         <button class="btn" id="refreshPorts" type="button">Оновити</button>
       </div>
       <label data-for="artnet sacn">IP-адреса вузла
-        <input id="outHost" placeholder="порожньо — broadcast / multicast">
+        <input id="outHost" placeholder="Порожньо — broadcast / multicast">
       </label>
       <label data-for="artnet sacn">Всесвіт (universe)
         <input id="outUniverse" type="number" min="0" max="63999" value="0">
       </label>
-      <p class="hint" data-for="artnet">Art-Net: всесвіт 0..32767 (Net·SubNet·Universe), порт 6454.</p>
-      <p class="hint" data-for="sacn">sACN: всесвіт 1..63999. Без IP пакети йдуть на multicast 239.255.x.y.</p>
-      <p class="hint" data-for="open_dmx">Open DMX потребує точних таймінгів — якщо прилади мерехтять, краще використати DMX USB Pro або Art-Net.</p>
       <div class="row">
         <button class="btn primary" id="outApply" type="button">Застосувати</button>
         <span id="outStatus" class="muted"></span>
@@ -177,7 +175,6 @@
   </div>
 
   <div id="tabProfiles" class="tab">
-    <p class="hint">Ролі каналів: <code>r g b w a uv</code> — кольори, <code>dim</code> — диммер, <code>strobe</code> — строб, <code>zero</code> — завжди 0, <code>full</code> — завжди 255, <code>=N</code> — завжди значення N (наприклад <code>=10</code> для каналу режиму). Найпростіше зібрати профіль через подвійний клік по приладу → «Тест каналів». Порядок має відповідати інструкції до прожектора.</p>
     <ul id="profileList" class="profile-list"></ul>
     <h3>Новий / змінити профіль</h3>
     <div class="form">
@@ -201,7 +198,6 @@
     </div>
     <pre id="aboutNotes" class="notes" hidden></pre>
     <h3>Вимкнення</h3>
-    <p class="hint">Програма працює у фоні й тримає світло, навіть якщо закрити вікно. Щоб повністю вийти (прожектори згаснуть):</p>
     <button class="btn danger" id="quitApp" type="button">Вимкнути програму</button>
   </div>
 </dialog>
@@ -213,13 +209,12 @@
   </form>
   <div class="form">
     <label>Профіль (режим DMX на приладі) <select id="addProfile"></select></label>
-    <p id="addInfo" class="hint"></p>
+    <p id="addInfo" class="info"></p>
     <div class="grid3">
       <label>Назва <input id="addName" placeholder="Прожектор"></label>
       <label>Стартова адреса <input id="addAddress" type="number" min="1" max="512" value="1"></label>
       <label>Кількість <input id="addCount" type="number" min="1" max="64" value="1"></label>
     </div>
-    <p class="hint">Адреса й режим мають збігатися з налаштуваннями в меню самого приладу. Кілька приладів отримають послідовні адреси.</p>
     <div class="row">
       <button class="btn primary" id="addFixture" type="button">Додати</button>
       <button class="btn" type="button" onclick="this.closest('dialog').close()">Скасувати</button>
@@ -234,7 +229,6 @@
   </form>
   <p id="updSubtitle" class="muted"></p>
   <pre id="updNotes" class="notes"></pre>
-  <p class="hint">Програма перезапуститься приблизно за 10 секунд. Світло залишиться увімкненим, налаштування збережуться.</p>
   <p id="updBlocked" class="warn" hidden></p>
   <div class="row">
     <button class="btn primary" id="updInstall" type="button">Встановити оновлення</button>
@@ -254,14 +248,10 @@
       <label>Яскравість <input id="propDimmer" type="range" min="0" max="255"><output id="propDimmerVal"></output></label>
     </div>
     <label>Профіль (режим DMX на приладі) <select id="propProfile"></select></label>
-    <p id="propInfo" class="hint"></p>
+    <p id="propInfo" class="info"></p>
     <p id="propWarn" class="warn" hidden></p>
     <details id="propTest" class="ch-test">
       <summary>🔧 Тест каналів і власний профіль</summary>
-      <p class="hint">Якщо прилад поводиться дивно (вмикає вбудовані програми, кольори не ті), режим на приладі не збігається з профілем.
-        Рухайте повзунки <b>по одному</b> і дивіться, що робить прилад. Для кожного каналу виберіть, за що він відповідає.
-        Якщо канал перемикає режими або програми, знайдіть значення, на якому прилад слухається кольорів, і виберіть «фіксоване значення».
-        Потім збережіть профіль — його буде одразу призначено цьому приладу.</p>
       <div class="row">
         <label class="inline">Каналів для тесту <input id="testCount" type="number" min="1" max="64"></label>
         <button class="btn small" id="testZero" type="button">Усі на 0</button>

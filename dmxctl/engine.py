@@ -7,11 +7,12 @@ import logging
 import os
 import time
 import uuid
+from dataclasses import replace
 from pathlib import Path
 
 from .effects import EFFECTS, effect_color, hex_to_rgb
-from .fixtures import (COLOR_KEYS, DEFAULT_PROFILES, Fixture, find_overlaps,
-                       render_fixture, segment_count, validate_fixture, validate_profile)
+from .fixtures import (COLOR_KEYS, DEFAULT_PROFILES, PRESET_COUNT, Fixture, find_overlaps,
+                       preset_level, render_fixture, segment_count, validate_fixture, validate_profile)
 from .outputs import DMX_CHANNELS, OUTPUT_TYPES, create_output
 
 log = logging.getLogger(__name__)
@@ -160,6 +161,7 @@ class Engine:
             "effect": self.effect,
             "static_colors": self.static_colors,
             "effects": EFFECTS,
+            "preset_count": PRESET_COUNT,
             "overlaps": find_overlaps(self.fixtures, self.profiles),
         }
 
@@ -183,15 +185,36 @@ class Engine:
         for f in whole:
             for k, v in values.items():
                 setattr(f, k, v)
-            if rgb_keys:  # колір на весь прилад скидає кольори сегментів
+            if rgb_keys:  # колір на весь прилад скидає кольори сегментів і пресет
                 f.segs = None
+                f.preset = None
         for f, k in segs:
             if rgb_keys:
+                f.preset = None
                 cur = f.seg_color(k)
                 f.set_seg(k, [values.get(c, cur[c]) for c in ("r", "g", "b")], self._segments(f))
             for key, v in values.items():  # диммер, білий тощо — спільні для приладу
                 if key not in ("r", "g", "b"):
                     setattr(f, key, v)
+
+    def cmd_preset(self, m):
+        """Вбудований пресет приладу: n = 1..25, або 0/None — вимкнути.
+
+        Вибрані сегменти означають їхній прилад; без вибору — усі прилади.
+        """
+        n = m.get("n")
+        n = int(n) if n else None
+        if n is not None:
+            preset_level(n)  # перевірка діапазону
+        whole, segs = self._resolve(m.get("ids"))
+        targets = {f.id: f for f in whole + [f for f, _ in segs]}
+        if not targets:
+            targets = {f.id: f for f in self.fixtures}
+        self._fade = None
+        for f in targets.values():
+            f.preset = n
+        if n is not None:
+            self._drop_from_effect(list(targets))
 
     def cmd_clear(self, m):
         """Очищає кольори: вибрані прилади/сегменти, або всі, якщо нічого не вибрано."""
@@ -202,7 +225,9 @@ class Engine:
         for f in whole:
             f.r = f.g = f.b = f.w = f.a = f.uv = f.strobe = 0
             f.segs = None
+            f.preset = None
         for f, k in segs:
+            f.preset = None
             f.set_seg(k, (0, 0, 0), self._segments(f))
         self._drop_from_effect([f.id for f in whole] + [f.id for f, _ in segs])
 
@@ -229,7 +254,9 @@ class Engine:
             f.w = w if has_w else 0
             f.a = f.uv = 0
             f.segs = None
+            f.preset = None
         for f, k in segs:
+            f.preset = None
             f.set_seg(k, rgb, self._segments(f))
         self._drop_from_effect([f.id for f in targets] + [f.id for f, _ in segs])
 
@@ -359,7 +386,7 @@ class Engine:
         if not name:
             raise ValueError("вкажіть назву сцени")
         self.scenes[name] = {
-            "fixtures": {f.id: {**{k: getattr(f, k) for k in STATE_KEYS}, "segs": f.segs}
+            "fixtures": {f.id: {**{k: getattr(f, k) for k in STATE_KEYS}, "segs": f.segs, "preset": f.preset}
                          for f in self.fixtures},
             "effect": dict(self.effect) if m.get("with_effect") else None,
         }
@@ -373,7 +400,7 @@ class Engine:
                 fx = self._fx(fid)
             except KeyError:
                 continue
-            targets[fid] = ({**{k: getattr(fx, k) for k in STATE_KEYS}, "segs": fx.segs}, vals)
+            targets[fid] = ({**{k: getattr(fx, k) for k in STATE_KEYS}, "segs": fx.segs, "preset": fx.preset}, vals)
         if scene.get("effect"):
             self.effect = dict(scene["effect"])
         if fade > 0:
@@ -405,6 +432,7 @@ class Engine:
                 setattr(fx, key, int(round(a + (b - a) * k)))
             if k >= 1.0:
                 fx.segs = [list(s) if s else None for s in end["segs"]] if end.get("segs") else None
+                fx.preset = end.get("preset")
             elif start.get("segs") or end.get("segs"):
                 n = self._segments(fx)
                 s0, s1 = _seg_rgbs(start, n), _seg_rgbs(end, n)
@@ -442,6 +470,16 @@ class Engine:
         for fx in self.fixtures:
             channels = self.profiles.get(fx.profile)
             if not channels:
+                continue
+            if fx.preset:
+                # пресет: червоний на максимумі, яскравість = рівень пресету; майстер не зсуває рівень
+                lvl = preset_level(fx.preset)
+                red = {"r": 255.0, "g": 0.0, "b": 0.0, "w": 0.0, "a": 0.0, "uv": 0.0}
+                pf = replace(fx, dimmer=lvl, segs=None, w=0, a=0, uv=0)
+                render_fixture(uni, pf, channels, [red] * segment_count(channels),
+                               0.0 if self.blackout else 1.0)
+                shown = 0 if self.blackout else lvl
+                live[fx.id] = [[shown, 0, 0, 0]] * segment_count(channels)
                 continue
             colors = []
             for k in range(segment_count(channels)):

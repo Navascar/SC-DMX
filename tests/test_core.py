@@ -273,3 +273,33 @@ def test_fixed_roles_and_raw_channel_test(tmp_path):
     assert eng.render(0)[1] == 255
     with pytest.raises(ValueError):
         eng.handle({"cmd": "save_profile", "name": "RGB (3 кан.)", "channels": ["r"]})
+
+
+def test_presets_switch_brightness_levels(tmp_path):
+    from dmxctl.fixtures import preset_level
+    assert [preset_level(1), preset_level(2), preset_level(25)] == [15, 25, 255]
+    eng = Engine(tmp_path / "cfg.json")
+    eng.handle({"cmd": "add_fixture", "profile": "Free Color WASH 243 · 24 кан. (8 сегментів)", "address": 1})
+    eng.handle({"cmd": "add_fixture", "profile": "Dim+RGB (4 кан.)", "address": 25})
+    bar, par = eng.fixtures
+    eng.handle({"cmd": "set_master", "value": 100})          # майстер не зсуває пресет
+    eng.handle({"cmd": "set_effect", "type": "rainbow", "ids": [bar.id, par.id]})
+    eng.handle({"cmd": "preset", "ids": [bar.id, par.id], "n": 3})
+    f = eng.render(0)
+    assert list(f[0:6]) == [35, 0, 0, 35, 0, 0]               # без диммера: червоний = рівень
+    assert list(f[24:28]) == [35, 255, 0, 0]                  # з диммером: dim = рівень, червоний 255
+    assert eng.effect["type"] == "none"
+    eng.handle({"cmd": "blackout", "on": True})
+    assert not any(eng.render(0))
+    eng.handle({"cmd": "blackout", "on": False})
+    # звичайний колір вимикає пресет
+    eng.handle({"cmd": "static_color", "hex": "#00ff00", "ids": [bar.id]})
+    assert bar.preset is None and par.preset == 3
+    # сцена зберігає пресет
+    eng.handle({"cmd": "save_scene", "name": "p"})
+    eng.handle({"cmd": "clear", "ids": []})
+    assert par.preset is None
+    eng.handle({"cmd": "recall_scene", "name": "p", "fade": 0})
+    assert par.preset == 3
+    with pytest.raises(ValueError):
+        eng.handle({"cmd": "preset", "ids": [par.id], "n": 26})

@@ -231,3 +231,16 @@ input, textarea, .notes, [contenteditable] { -webkit-user-select: text; user-sel
 label.inline { display: flex; align-items: center; gap: 6px; }
 label.inline input { width: 70px; }
 @media (max-width: 720px) { .test-row { grid-template-columns: 70px 1fr; } .test-row input[type=range] { grid-column: 1 / -1; } }
+
+.info { color: var(--muted); font-size: 12px; margin: 4px 0; }
+.presets-head { margin-top: 18px; }
+.preset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(46px, 1fr)); gap: 6px; }
+.preset-grid button { height: 38px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel-2);
+  color: var(--text); font: 600 14px/1 system-ui, sans-serif; cursor: pointer; font-variant-numeric: tabular-nums; }
+.preset-grid button:hover { border-color: #e5484d; }
+.preset-grid button.on { background: #e5484d; border-color: #e5484d; color: #fff; box-shadow: 0 0 10px rgba(229,72,77,.5); }
+.preset-grid button.part { border-color: #e5484d; color: #ff8a8d; }
+/* числові значення біля повзунків — клік, щоб ввести число */
+output.editable { cursor: text; border-radius: 4px; padding: 1px 3px; }
+output.editable:hover { background: var(--panel-2); outline: 1px solid var(--line); }
+input.num-edit { width: 62px; padding: 2px 4px; font-size: 12px; text-align: right; }

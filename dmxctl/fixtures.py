@@ -50,6 +50,10 @@ class Fixture:
     # Кольори окремих сегментів: список [r, g, b] або None (= колір приладу).
     # None для всього поля — прилад світить одним кольором.
     segs: list | None = None
+    # Вбудований пресет приладу (1..PRESET_COUNT) або None. Деякі LED-бари вмикають
+    # свої програми, коли червоний на максимумі, а програму вибирає рівень яскравості
+    # (новий пресет кожні 10 DMX-значень) — пресет N так і відтворюється.
+    preset: int | None = None
 
     @classmethod
     def from_dict(cls, d: dict) -> "Fixture":
@@ -74,6 +78,17 @@ class Fixture:
         segs += [None] * (count - len(segs))
         segs[k] = [int(v) for v in rgb]
         self.segs = segs[:count]
+
+
+PRESET_COUNT = 25
+PRESET_STEP = 10
+
+
+def preset_level(n: int) -> int:
+    """Рівень яскравості для пресету n: середина n-го десятка (15, 25, … 255)."""
+    if not 1 <= n <= PRESET_COUNT:
+        raise ValueError(f"пресет має бути 1..{PRESET_COUNT}")
+    return min(255, n * PRESET_STEP + PRESET_STEP // 2)
 
 
 def segment_count(channels: list[str]) -> int:

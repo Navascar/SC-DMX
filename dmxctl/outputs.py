@@ -87,7 +87,7 @@ class Output:
         self._changed = threading.Event()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        self.status = "зупинено"
+        self.status = "Зупинено"
         self.ok = False
         self.frames_sent = 0
 
@@ -110,7 +110,7 @@ class Output:
             self._thread.join(timeout=2)
         self.close()
         self.ok = False
-        self.status = "зупинено"
+        self.status = "Зупинено"
 
     def info(self) -> dict:
         return {"type": self.kind, "ok": self.ok, "status": self.status,
@@ -135,10 +135,10 @@ class Output:
                 try:
                     self.open()
                     self.ok = True
-                    self.status = "працює"
+                    self.status = "Працює"
                     log.info("Вихід %s відкрито", self.kind)
                 except Exception as exc:  # noqa: BLE001
-                    status = f"помилка: {exc}"
+                    status = f"Помилка: {exc}"
                     if status != self.status:  # не засмічуємо журнал однаковими повідомленнями
                         log.warning("Не вдалося відкрити %s: %s", self.kind, exc)
                     self.status = status
@@ -157,7 +157,7 @@ class Output:
                 self.frames_sent += 1
                 last_send = time.monotonic()
             except Exception as exc:  # noqa: BLE001
-                self.status = f"помилка: {exc}"
+                self.status = f"Помилка: {exc}"
                 log.warning("Помилка відправки %s: %s", self.kind, exc)
                 self.ok = False
                 try:
@@ -171,12 +171,12 @@ class NullOutput(Output):
     kind = "none"
 
     def open(self) -> None:
-        self.status = "симуляція"
+        self.status = "Симуляція"
 
     def info(self) -> dict:
         d = super().info()
         if self.ok:
-            d["status"] = "симуляція (без обладнання)"
+            d["status"] = "Симуляція (без обладнання)"
         return d
 
 
@@ -386,7 +386,7 @@ class UDmxOutput(Output):
     def info(self) -> dict:
         d = super().info()
         if self.ok and getattr(self, "device_name", None):
-            d["status"] = "працює: " + self.device_name
+            d["status"] = "Працює: " + self.device_name
         return d
 
 

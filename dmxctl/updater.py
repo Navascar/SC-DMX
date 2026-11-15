@@ -142,7 +142,7 @@ def download_and_install(url: str, progress=lambda text: None) -> None:
         raise RuntimeError(reason)
     with tempfile.TemporaryDirectory(prefix="sc-dmx-dl-") as tmp:
         zpath = Path(tmp) / "update.zip"
-        progress("завантаження…")
+        progress("Завантаження…")
         with _open(url, timeout=60) as resp, open(zpath, "wb") as fh:
             total = int(resp.headers.get("Content-Length") or 0)
             done = 0
@@ -150,8 +150,8 @@ def download_and_install(url: str, progress=lambda text: None) -> None:
                 fh.write(chunk)
                 done += len(chunk)
                 if total:
-                    progress(f"завантаження… {done * 100 // total}%")
-        progress("встановлення файлів…")
+                    progress(f"Завантаження… {done * 100 // total}%")
+        progress("Встановлення файлів…")
         install_from_zip(zpath)
-    progress("встановлення залежностей…")
+    progress("Встановлення залежностей…")
     install_requirements()
