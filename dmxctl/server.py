@@ -24,7 +24,12 @@ TASKS = web.AppKey("tasks", list)
 UPDATE = web.AppKey("update", dict)
 STOP = web.AppKey("stop", asyncio.Event)
 EXIT = web.AppKey("exit", dict)
-UPDATE_CHECK_INTERVAL = 3600  # перевірка оновлень: при запуску і щогодини
+UPDATE_CHECK_INTERVAL = 3600
+# Програма працює, лише поки відкрите її вікно. Після закриття останнього вікна —
+# коротка пауза (перезавантаження сторінки, оновлення), потім світло гасне і програма виходить.
+CLOSE_GRACE_S = 6
+STARTUP_TIMEOUT_S = 90       # вікно так і не відкрилося — не лишаємось у фоні
+WATCH = web.AppKey("watch", dict)  # перевірка оновлень: при запуску і щогодини
 
 
 async def broadcast(app: web.Application, payload: dict) -> None:
@@ -43,6 +48,8 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
     ws = web.WebSocketResponse(heartbeat=20)
     await ws.prepare(request)
     app[SOCKETS].add(ws)
+    app[WATCH]["seen"] = True
+    app[WATCH]["last_close"] = None
     await ws.send_json({"type": "state", "state": engine.state()})
     await ws.send_json({"type": "update", "update": app[UPDATE]})
     async for msg in ws:
@@ -76,7 +83,36 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
                                   "master": engine.master})
         else:
             await broadcast(app, {"type": "state", "state": engine.state()})
+    app[SOCKETS].discard(ws)
+    if not _open_sockets(app):
+        app[WATCH]["last_close"] = asyncio.get_running_loop().time()
     return ws
+
+
+def _open_sockets(app: web.Application) -> list:
+    return [w for w in app[SOCKETS] if not w.closed]
+
+
+async def window_watch(app: web.Application) -> None:
+    """Вимикає програму, коли не лишилось жодного відкритого вікна."""
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+    w = app[WATCH]
+    while True:
+        await asyncio.sleep(1)
+        if not w["enabled"] or app[UPDATE]["status"] in ("installing", "restarting"):
+            continue
+        if _open_sockets(app):
+            continue
+        now = loop.time()
+        if not w["seen"] and now - started > STARTUP_TIMEOUT_S:
+            log.info("Вікно програми не відкрилося — вихід")
+            request_stop(app, 0)
+            return
+        if w["seen"] and w["last_close"] is not None and now - w["last_close"] > CLOSE_GRACE_S:
+            log.info("Вікно програми закрито — світло вимкнено, вихід")
+            request_stop(app, 0)
+            return
 
 
 def _udmx_list() -> list[dict]:
@@ -189,7 +225,7 @@ def request_stop(app: web.Application, code: int) -> None:
 async def on_startup(app: web.Application) -> None:
     engine = app[ENGINE]
     app[TASKS] = [asyncio.create_task(engine.run()), asyncio.create_task(live_feed(app)),
-                  asyncio.create_task(update_loop(app))]
+                  asyncio.create_task(update_loop(app)), asyncio.create_task(window_watch(app))]
 
 
 async def on_cleanup(app: web.Application) -> None:
@@ -206,8 +242,9 @@ async def index(_request: web.Request) -> web.FileResponse:
     return web.FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-cache"})
 
 
-def make_app(config_path: str) -> web.Application:
+def make_app(config_path: str, background: bool = False) -> web.Application:
     app = web.Application()
+    app[WATCH] = {"enabled": not background, "seen": False, "last_close": None}
     app[ENGINE] = Engine(config_path)
     app[SOCKETS] = weakref.WeakSet()
     app[STOP] = asyncio.Event()
@@ -230,8 +267,8 @@ async def _no_cache(request: web.Request, response: web.StreamResponse) -> None:
         response.headers["Cache-Control"] = "no-cache"
 
 
-async def serve(config_path: str, host: str, port: int) -> int:
-    app = make_app(config_path)
+async def serve(config_path: str, host: str, port: int, background: bool = False) -> int:
+    app = make_app(config_path, background)
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()
     site = web.TCPSite(runner, host, port)
@@ -263,13 +300,15 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--port", type=int, default=8080, help="порт веб-сервера (типово 8080)")
     parser.add_argument("--config", default=str(updater.APP_DIR / "config.json"), help="файл конфігурації")
     parser.add_argument("--check", action="store_true", help="перевірити підключення uDMX і вийти")
+    parser.add_argument("--background", action="store_true",
+                        help="не вимикатися після закриття вікна (для керування з інших пристроїв)")
     parser.add_argument("-v", "--verbose", action="store_true")
     args, _unknown = parser.parse_known_args(argv)
     if args.check:
         raise SystemExit(check_udmx())
     setup_logging(args.verbose)
     try:
-        code = asyncio.run(serve(args.config, args.host, args.port))
+        code = asyncio.run(serve(args.config, args.host, args.port, args.background))
     except KeyboardInterrupt:
         code = 0
     raise SystemExit(code)
