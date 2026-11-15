@@ -294,3 +294,24 @@ input[type=range]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px rg
   font: 600 12px/1.1 system-ui, sans-serif; text-align: center; }
 .prog-row .sw { flex: none; width: 12px; height: 12px; border-radius: 50%; border: 1px solid #fff5; }
 .preset-speed { margin-top: 14px; }
+
+/* ---- поведінка як у звичайної програми ---- */
+/* без горизонтальної прокрутки й «пружини» при свайпі тачпадом */
+html, body { overflow-x: hidden; overscroll-behavior: none; max-width: 100%; }
+/* текст не виділяється (інакше Edge показує своє міні-меню); у полях введення — виділяється */
+*, *::before, *::after { -webkit-user-select: none; user-select: none; }
+input, textarea, [contenteditable] { -webkit-user-select: text; user-select: text; }
+/* смуги прокрутки приховано; прокрутка коліщатком лишається */
+* { scrollbar-width: none; }
+::-webkit-scrollbar { width: 0; height: 0; }
+
+/* широке вікно: усе вміщується без прокрутки сторінки, монітор — унизу */
+@media (min-width: 1101px) {
+  html, body { height: 100%; overflow: hidden; }
+  body { display: flex; flex-direction: column; }
+  .topbar { flex: none; }
+  .layout { flex: 1; min-height: 0; grid-template-rows: minmax(0, 1fr) auto; padding-bottom: 12px; }
+  .layout > .panel:not(.monitor-panel) { min-height: 0; overflow-y: auto; }
+  .monitor-panel { padding: 10px 14px; }
+  .monitor { max-height: 28vh; overflow-y: auto; }
+}

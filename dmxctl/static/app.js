@@ -244,6 +244,8 @@ function pick(id, multi) {
   }
   refreshSelection();
   syncSliders();
+  // клік по бару відкриває вікно пресетів (знято вибір — вікно закриється саме)
+  if (selected.has(id) && (S.preset_fixtures || []).includes(fid)) openPresets();
 }
 
 // оновлює підсвітку вибору, не перебудовуючи плитки
@@ -1200,6 +1202,11 @@ function generalMenu() {
 }
 
 function bindContextMenu() {
+  // заборона виділення тексту поза полями введення (і міні-меню браузера разом з ним)
+  document.addEventListener("selectstart", (e) => {
+    const t = e.target instanceof Element ? e.target : e.target.parentElement;
+    if (!t || !t.closest("input, textarea, [contenteditable]")) e.preventDefault();
+  });
   document.addEventListener("contextmenu", (e) => {
     e.preventDefault();  // меню браузера не показуємо ніде
     const target = e.target instanceof Element ? e.target : document.body;
