@@ -25,7 +25,7 @@ jobs:
           New-Item -ItemType Directory -Force build\app | Out-Null
           git archive --format=zip -o build\src.zip HEAD
           Expand-Archive build\src.zip -DestinationPath build\app
-          & $nsis -V2 -DVERSION=0.0.1 "-DSRC=$pwd\build\app" "-DOUTFILE=$pwd\SC-DMX-Setup.exe" installer\sc-dmx.nsi
+          & $nsis -V2 "-DVERSION=0.0.1" "-DSRC=$pwd\build\app" "-DOUTFILE=$pwd\SC-DMX-Setup.exe" installer\sc-dmx.nsi
           if ($LASTEXITCODE) { exit 1 }
 
       - name: Встановлення (вікно в режимі автоперевірки)
