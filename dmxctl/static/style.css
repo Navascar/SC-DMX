@@ -375,3 +375,14 @@ input, textarea, [contenteditable] { -webkit-user-select: text; user-select: tex
   .test-row input[type=range] { grid-column: 1 / -1; }
   .prog-row.prog-effect { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 }
+
+/* бібліотека приладів у вікні «Новий прилад» */
+.lib-results { display: grid; gap: var(--s-1); max-height: 280px; overflow-y: auto; margin-top: calc(-1 * var(--s-1)); }
+.lib-item { display: grid; gap: var(--s-1); padding: var(--s-2) 0; border-top: 1px solid var(--line); }
+.lib-item:first-child { border-top: 0; }
+.lib-name { font-size: var(--fs-md); color: var(--text); }
+.lib-name b { font-weight: 600; }
+.lib-name small { color: var(--muted); font-size: var(--fs-xs); margin-left: var(--s-1); }
+.lib-modes { display: flex; flex-wrap: wrap; gap: var(--s-1); }
+.lib-modes .btn.picked { border-color: var(--accent); color: var(--accent); }
+.lib-empty { color: var(--muted); font-size: var(--fs-sm); padding: var(--s-2) 0; }

@@ -131,8 +131,8 @@ def clamp8(v: float) -> int:
 
 
 def validate_profile(channels: list[str]) -> None:
-    if not channels or len(channels) > 64:
-        raise ValueError("профіль має містити 1..64 каналів")
+    if not channels or len(channels) > 512:
+        raise ValueError("профіль має містити 1..512 каналів")
     bad = [c for c in channels if c not in ROLES and fixed_value(c) is None]
     if bad:
         raise ValueError(f"невідомі ролі каналів: {', '.join(bad)}")

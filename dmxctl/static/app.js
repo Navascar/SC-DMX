@@ -1370,6 +1370,70 @@ function bindContextMenu() {
 
 let addPending = null;
 
+// ------------------------------------------------- бібліотека приладів -----
+let libTimer = null;
+let libSeq = 0;
+let pendingProfile = null;
+
+function libProfileName(fx, mode) {
+  return `${fx.m} ${fx.n} · ${mode[0]} (${mode[1].length} кан.)`;
+}
+
+async function searchLibrary() {
+  const q = $("#libSearch").value.trim();
+  const box = $("#libResults");
+  if (q.length < 2) { box.hidden = true; box.replaceChildren(); return; }
+  const seq = ++libSeq;
+  let data = { results: [] };
+  try {
+    data = await (await fetch(`/api/library?q=${encodeURIComponent(q)}`)).json();
+  } catch { /* сервер недоступний */ }
+  if (seq !== libSeq) return;  // прийшла відповідь на застарілий запит
+  const words = q.toLowerCase().split(/\s+/);
+  // вбудовані профілі (WASH 243 тощо) — теж у результатах
+  const builtin = Object.keys(S.profiles).filter((p) => words.every((w) => p.toLowerCase().includes(w)));
+  const rows = [];
+  if (builtin.length) {
+    const modes = el("div", { className: "lib-modes" });
+    for (const name of builtin.slice(0, 12)) {
+      modes.append(Object.assign(el("button", { type: "button", className: "btn small", textContent: name }),
+        { onclick: () => pickProfile(name) }));
+    }
+    rows.push(el("div", { className: "lib-item" }, el("div", { className: "lib-name", innerHTML: "<b>Профілі програми</b>" }), modes));
+  }
+  for (const fx of data.results) {
+    const modes = el("div", { className: "lib-modes" });
+    for (const mode of fx.modes) {
+      const b = el("button", { type: "button", className: "btn small", title: mode[1].join(" "),
+                               textContent: `${mode[0]} · ${mode[1].length} кан.` });
+      b.onclick = () => importProfile(fx, mode, b);
+      modes.append(b);
+    }
+    const name = el("div", { className: "lib-name" }, el("b", { textContent: fx.m }), ` ${fx.n}`,
+                    el("small", { textContent: fx.src }));
+    rows.push(el("div", { className: "lib-item" }, name, modes));
+  }
+  if (!rows.length) rows.push(el("div", { className: "lib-empty",
+    textContent: `Нічого не знайдено серед ${data.total || 0} приладів. Спробуйте коротший запит або створіть профіль вручну.` }));
+  box.replaceChildren(...rows);
+  box.hidden = false;
+}
+
+function pickProfile(name) {
+  $("#addProfile").value = name;
+  updateAddInfo();
+}
+
+function importProfile(fx, mode, btn) {
+  const name = libProfileName(fx, mode);
+  if (!$("#addName").value.trim()) $("#addName").value = fx.n;
+  document.querySelectorAll(".lib-modes .btn.picked").forEach((b) => b.classList.remove("picked"));
+  btn.classList.add("picked");
+  if (S.profiles[name]) return pickProfile(name);
+  pendingProfile = name;
+  send({ cmd: "save_profile", name, channels: mode[1] });
+}
+
 function nextFreeAddress() {
   const end = Math.max(0, ...S.fixtures.map((f) => f.address + S.profiles[f.profile].length - 1));
   return Math.min(512, end + 1);
@@ -1380,6 +1444,8 @@ function openAdd() {
   $("#addAddress").value = nextFreeAddress();
   $("#addCount").value = 1;
   $("#addName").value = "";
+  $("#libSearch").value = "";
+  $("#libResults").hidden = true;
   updateAddInfo();
   $("#addDlg").showModal();
 }
@@ -1396,6 +1462,11 @@ function updateAddInfo() {
 
 // після успішного додавання — закрити вікно і вибрати новий прилад
 function afterState() {
+  if (pendingProfile && S.profiles[pendingProfile]) {
+    renderSettings();
+    pickProfile(pendingProfile);
+    pendingProfile = null;
+  }
   if (addPending !== null && S.fixtures.length > addPending) {
     const added = S.fixtures.slice(addPending);
     addPending = null;
@@ -1449,6 +1520,7 @@ function bindSettings() {
   $("#openAdd").onclick = openAdd;
   for (const b of document.querySelectorAll("[data-open-add]")) b.onclick = openAdd;
   $("#addCount").addEventListener("input", updateAddInfo);
+  $("#libSearch").addEventListener("input", () => { clearTimeout(libTimer); libTimer = setTimeout(searchLibrary, 150); });
   $("#addAddress").addEventListener("input", updateAddInfo);
   $("#addFixture").onclick = () => {
     addPending = S.fixtures.length;

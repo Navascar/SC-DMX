@@ -280,6 +280,52 @@ async def on_cleanup(app: web.Application) -> None:
     await asyncio.get_running_loop().run_in_executor(None, app[ENGINE].shutdown, blackout)
 
 
+# ------------------------------------------------- бібліотека приладів ---
+_LIBRARY: list[dict] | None = None
+
+
+def library() -> list[dict]:
+    """Описи приладів з Open Fixture Library та QLC+ (збирає tools/build_library.py)."""
+    global _LIBRARY
+    if _LIBRARY is None:
+        import gzip
+        path = Path(__file__).parent / "library.json.gz"
+        try:
+            _LIBRARY = json.loads(gzip.decompress(path.read_bytes()))["fixtures"]
+        except (OSError, ValueError, KeyError):
+            log.exception("Не вдалося завантажити бібліотеку приладів")
+            _LIBRARY = []
+    return _LIBRARY
+
+
+MAKER_ALIASES = {"american dj": "adj", "chauvet": "chauvet dj", "stairville": "thomann", "eurolite": "steinigke",
+                 "martin": "martin professional", "elation": "elation professional"}
+
+
+def search_library(query: str, limit: int = 40) -> list[dict]:
+    words = [w for w in query.lower().split() if w]
+    if not words:
+        return []
+    hits = []
+    for fx in library():
+        text = f"{fx['m']} {MAKER_ALIASES.get(fx['m'].lower(), '')} {fx['n']}".lower()
+        if all(w in text for w in words):
+            # спершу — збіг із початком назви виробника чи моделі
+            rank = 0 if text.startswith(words[0]) or fx["n"].lower().startswith(words[0]) else 1
+            hits.append((rank, len(fx["n"]), fx))
+    hits.sort(key=lambda h: (h[0], h[2]["m"].lower(), h[1]))
+    return [h[2] for h in hits[:limit]]
+
+
+async def library_api(request: web.Request) -> web.Response:
+    q = request.query.get("q", "")
+    found = search_library(q)
+    resp = web.json_response({"total": len(library()), "results": found},
+                             dumps=lambda o: json.dumps(o, ensure_ascii=False))
+    resp.enable_compression()
+    return resp
+
+
 async def index(_request: web.Request) -> web.FileResponse:
     return web.FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-cache"})
 
@@ -296,6 +342,7 @@ def make_app(config_path: str, background: bool = False) -> web.Application:
                    "blocked": updater.can_self_update(), "repo": updater.GITHUB_REPO}
     app.router.add_get("/", index)
     app.router.add_get("/ws", ws_handler)
+    app.router.add_get("/api/library", library_api)
     app.router.add_static("/static", STATIC)
     app.on_response_prepare.append(_no_cache)
     app.on_startup.append(on_startup)

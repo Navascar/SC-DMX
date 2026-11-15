@@ -203,6 +203,8 @@
         <h3>SC DMX <span id="aboutVersion"></span></h3>
         <p class="muted">Керування RGB-прожекторами через USB DMX (uDMX).</p>
         <p class="muted">Оновлення: <a id="aboutRepo" href="#" rel="noopener"></a></p>
+        <p class="muted">Бібліотека приладів: <a href="https://open-fixture-library.org">Open Fixture Library</a> (MIT)
+          і <a href="https://github.com/mcallegari/qlcplus">QLC+</a> (Apache-2.0)</p>
       </div>
     </div>
     <div class="row">
@@ -219,6 +221,10 @@
     <button class="btn ghost icon-btn" value="close" data-icon="x" aria-label="Закрити"></button>
   </form>
   <div class="form">
+    <label>Знайти модель у бібліотеці
+      <input id="libSearch" type="search" placeholder="Виробник або модель, напр. «Chauvet SlimPAR» чи «WASH 243»" autocomplete="off">
+    </label>
+    <div id="libResults" class="lib-results" hidden></div>
     <label>Профіль (режим DMX на приладі) <select id="addProfile"></select></label>
     <p id="addInfo" class="info"></p>
     <div class="grid3">

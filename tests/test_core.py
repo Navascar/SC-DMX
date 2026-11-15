@@ -397,3 +397,16 @@ def test_white_mixes_into_rgb_without_white_channel(tmp_path):
     f = eng.render(0)
     assert list(f[0:3]) == [255, 100, 150]       # RGB: білий додано до кожного кольору (з обмеженням 255)
     assert list(f[3:7]) == [200, 0, 50, 100]     # RGBW: білий — у свій канал
+
+
+def test_fixture_library_modes_are_valid():
+    from dmxctl import server
+    from dmxctl.fixtures import validate_profile
+    lib = server.library()
+    assert len(lib) > 1000
+    for fx in lib:
+        for name, roles in fx["modes"]:
+            validate_profile(roles)   # кожна роль відома програмі
+    found = server.search_library("adj mega bar")
+    assert found and all("Mega" in f["n"] for f in found)
+    assert server.search_library("") == []
