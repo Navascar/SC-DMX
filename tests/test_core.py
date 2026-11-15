@@ -4,7 +4,7 @@ import pytest
 
 from dmxctl.effects import effect_color
 from dmxctl.engine import Engine
-from dmxctl.fixtures import DEFAULT_PROFILES, Fixture, find_overlaps, render_fixture, validate_fixture
+from dmxctl.fixtures import DEFAULT_PROFILES, FORMER_PROFILES, Fixture, find_overlaps, render_fixture, validate_fixture
 from dmxctl.outputs import artnet_packet, enttec_pro_packet, sacn_multicast_address, sacn_packet
 
 
@@ -48,7 +48,7 @@ def test_sacn_packet_layout():
 def test_render_with_dimmer_channel():
     uni = bytearray(512)
     fx = Fixture(id="a", name="A", address=10, profile="Dim+RGB+Strobe (5 кан.)", r=255, g=128, b=0, dimmer=128)
-    render_fixture(uni, fx, DEFAULT_PROFILES[fx.profile], fx.color(), master=1.0)
+    render_fixture(uni, fx, FORMER_PROFILES[fx.profile], fx.color(), master=1.0)
     assert list(uni[9:14]) == [128, 255, 128, 0, 0]
 
 
@@ -170,6 +170,30 @@ def test_wash243_profiles():
     assert MODEL_PROFILES["Free Color WASH 243 · 4 кан. d001 (Dim+RGB)"] == ["dim", "r", "g", "b"]
     # WASH 243 — модель бібліотеки, а не загальний профіль
     assert not any(n.startswith("Free Color") for n in DEFAULT_PROFILES)
+
+
+def test_only_basic_default_profiles():
+    # загальні профілі — лише базове RGB-керування; решта — режими моделей бібліотеки
+    assert set(DEFAULT_PROFILES) == {"RGB (3 кан.)", "RGBW (4 кан.)", "Dim+RGB (4 кан.)", "RGB+Dim (4 кан.)"}
+    for roles in DEFAULT_PROFILES.values():
+        assert set(roles) <= {"r", "g", "b", "w", "dim"}
+    assert not set(FORMER_PROFILES) & set(DEFAULT_PROFILES)
+
+
+def test_former_default_profile_migrates(tmp_path):
+    import json
+    cfg = tmp_path / "cfg.json"
+    cfg.write_text(json.dumps({"fixtures": [
+        {"id": "a", "name": "PAR", "address": 1, "profile": "RGBWA+UV (6 кан.)"}]}), "utf-8")
+    eng = Engine(cfg)
+    # профіль приладу на місці, а невикористані колишні профілі в списку не з'являються
+    assert eng.profiles["RGBWA+UV (6 кан.)"] == ["r", "g", "b", "w", "a", "uv"]
+    assert "Dim+RGB+Strobe (5 кан.)" not in eng.profiles
+    eng.save()
+    assert "RGBWA+UV (6 кан.)" in json.loads(cfg.read_text("utf-8"))["profiles"]
+    # новий прилад із колишнім профілем теж можна додати (напр. зі старої сцени чи копією)
+    eng.handle({"cmd": "add_fixture", "profile": "Dim+RGB+Strobe (5 кан.)", "address": 20})
+    assert eng.profiles["Dim+RGB+Strobe (5 кан.)"] == ["dim", "r", "g", "b", "strobe"]
 
 
 def test_segment_colors_and_clear(tmp_path):

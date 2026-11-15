@@ -37,16 +37,24 @@ BUILTIN_MODELS: list[dict] = [{
     "modes": [[mode, roles, name] for mode, name, roles in WASH243_MODES],
 }]
 
+# Загальні профілі — для невідомого приладу, якому потрібне лише базове керування кольором.
+# Усе специфічніше (строб, UV, сегменти, програми) береться з моделей бібліотеки.
 DEFAULT_PROFILES: dict[str, list[str]] = {
     "RGB (3 кан.)": ["r", "g", "b"],
     "RGBW (4 кан.)": ["r", "g", "b", "w"],
     "Dim+RGB (4 кан.)": ["dim", "r", "g", "b"],
     "RGB+Dim (4 кан.)": ["r", "g", "b", "dim"],
+}
+
+# Колишні загальні профілі (до версії 1.19). Тепер це режими моделей бібліотеки;
+# прилади, які вже їх використовують, отримують профіль автоматично й працюють як раніше.
+FORMER_PROFILES: dict[str, list[str]] = {
     "Dim+RGB+Strobe (5 кан.)": ["dim", "r", "g", "b", "strobe"],
     "Dim+RGBW+Strobe (6 кан.)": ["dim", "r", "g", "b", "w", "strobe"],
     "RGBWA+UV (6 кан.)": ["r", "g", "b", "w", "a", "uv"],
     "Dim+RGBWA+UV+Strobe (8 кан.)": ["dim", "r", "g", "b", "w", "a", "uv", "strobe"],
 }
+MODEL_PROFILES.update(FORMER_PROFILES)
 
 # Старі назви профілів (до версії 1.9) → нові
 LEGACY_PROFILES = {
