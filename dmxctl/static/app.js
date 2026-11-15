@@ -61,6 +61,7 @@ function onMessage(m) {
     for (const id of [...selected]) if (!S.fixtures.some((f) => f.id === id)) selected.delete(id);
     if (effColors === null) effColors = [...S.effect.colors];
     renderAll();
+    afterState();
   } else if (m.type === "patch" && S) {
     S.fixtures = m.fixtures;
     S.master = m.master;
@@ -86,6 +87,7 @@ function onMessage(m) {
   } else if (m.type === "bye") {
     quitting = true;
   } else if (m.type === "error") {
+    if (addPending !== null) addPending = null;
     toast(m.message);
   }
 }
@@ -132,7 +134,9 @@ function renderFixtures() {
   const grid = $("#fixtureGrid");
   grid.replaceChildren();
   if (!S.fixtures.length) {
-    grid.append(el("p", { className: "hint", textContent: "Немає приладів. Додайте їх у Налаштування → Патч." }));
+    grid.append(el("div", { className: "empty-state" },
+      el("div", { textContent: "Приладів ще немає." }),
+      el("button", { className: "btn primary", textContent: "＋ Додати прилад", onclick: openAdd })));
   }
   const effIds = new Set(S.effect.type !== "none" ? S.effect.ids : []);
   for (const f of S.fixtures) {
@@ -145,11 +149,7 @@ function renderFixtures() {
         cell.className = selected.has(`${f.id}#${k}`) ? "sel" : "";
         cell.onclick = (e) => {
           e.stopPropagation();
-          const id = `${f.id}#${k}`;
-          selected.delete(f.id);
-          selected.has(id) ? selected.delete(id) : selected.add(id);
-          renderFixtures();
-          syncSliders();
+          pick(`${f.id}#${k}`, e.shiftKey);
         };
         lamp.append(cell);
       }
@@ -163,14 +163,30 @@ function renderFixtures() {
       el("div", { className: "addr", textContent: `DMX ${f.address}–${f.address + S.profiles[f.profile].length - 1}` }),
       el("div", { className: "fx-badge", textContent: effIds.has(f.id) ? "● " + S.effects[S.effect.type] : "" }));
     tile.dataset.id = f.id;
-    tile.onclick = () => {
-      for (let k = 0; k < n; k++) selected.delete(`${f.id}#${k}`);
-      selected.has(f.id) ? selected.delete(f.id) : selected.add(f.id);
-      renderFixtures();
-      syncSliders();
-    };
+    tile.onclick = (e) => pick(f.id, e.shiftKey);
     grid.append(tile);
   }
+}
+
+// Клік — вибрати лише цей прилад/сегмент (повторний клік знімає вибір).
+// Shift + клік — додати до вибору або прибрати з нього.
+function pick(id, multi) {
+  const fid = id.split("#")[0];
+  if (multi) {
+    if (selected.has(id)) {
+      selected.delete(id);
+    } else {
+      // прилад цілком і його сегменти взаємовиключні
+      for (const x of [...selected]) if (x !== id && x.split("#")[0] === fid && (!id.includes("#") || !x.includes("#"))) selected.delete(x);
+      selected.add(id);
+    }
+  } else {
+    const only = selected.size === 1 && selected.has(id);
+    selected.clear();
+    if (!only) selected.add(id);
+  }
+  renderFixtures();
+  syncSliders();
 }
 
 function updateLive(m) {
@@ -539,7 +555,7 @@ function renderSettings() {
   if (profNames.includes(keep)) addSel.value = keep;
   // наступна вільна адреса
   const end = Math.max(0, ...S.fixtures.map((f) => f.address + S.profiles[f.profile].length - 1));
-  $("#addAddress").value = Math.min(512, end + 1);
+  addSel.onchange = updateAddInfo;
 
   // патч
   const overlapIds = new Set(S.overlaps.flat());
@@ -574,6 +590,45 @@ function renderSettings() {
       $("#profName").value = p; $("#profChannels").value = S.profiles[p].join(", ");
     } }),
     el("button", { className: "btn small", textContent: "✕", onclick: () => send({ cmd: "delete_profile", name: p }) }))));
+}
+
+let addPending = null;
+
+function nextFreeAddress() {
+  const end = Math.max(0, ...S.fixtures.map((f) => f.address + S.profiles[f.profile].length - 1));
+  return Math.min(512, end + 1);
+}
+
+function openAdd() {
+  renderSettings();
+  $("#addAddress").value = nextFreeAddress();
+  $("#addCount").value = 1;
+  $("#addName").value = "";
+  updateAddInfo();
+  $("#addDlg").showModal();
+}
+
+function updateAddInfo() {
+  const ch = S.profiles[$("#addProfile").value] || [];
+  const n = Math.max(1, ...["r", "g", "b"].map((c) => ch.filter((x) => x === c).length));
+  const count = Math.max(1, +$("#addCount").value || 1);
+  const start = +$("#addAddress").value || 1;
+  const last = start + ch.length * count - 1;
+  $("#addInfo").textContent = `${ch.length} кан.${n > 1 ? ` · ${n} сегм.` : ""} · канали: ${ch.join(" ")}` +
+    ` · займе адреси ${start}–${last}${last > 512 ? " (за межами 512!)" : ""}`;
+}
+
+// після успішного додавання — закрити вікно і вибрати новий прилад
+function afterState() {
+  if (addPending !== null && S.fixtures.length > addPending) {
+    const added = S.fixtures.slice(addPending);
+    addPending = null;
+    $("#addDlg").close();
+    selected.clear();
+    selected.add(added[0].id);
+    renderFixtures();
+    syncSliders();
+  }
 }
 
 function toggleOutFields() {
@@ -614,10 +669,17 @@ function bindSettings() {
     renderSettings.outputTouched = false;
     send(cfg);
   };
-  $("#addFixture").onclick = () => send({
-    cmd: "add_fixture", name: $("#addName").value.trim(), address: +$("#addAddress").value,
-    profile: $("#addProfile").value, count: +$("#addCount").value || 1,
-  });
+  $("#openAdd").onclick = openAdd;
+  for (const b of document.querySelectorAll("[data-open-add]")) b.onclick = openAdd;
+  $("#addCount").addEventListener("input", updateAddInfo);
+  $("#addAddress").addEventListener("input", updateAddInfo);
+  $("#addFixture").onclick = () => {
+    addPending = S.fixtures.length;
+    send({
+      cmd: "add_fixture", name: $("#addName").value.trim(), address: +$("#addAddress").value,
+      profile: $("#addProfile").value, count: +$("#addCount").value || 1,
+    });
+  };
   $("#profSave").onclick = () => {
     const channels = $("#profChannels").value.split(/[\s,;]+/).filter(Boolean);
     send({ cmd: "save_profile", name: $("#profName").value.trim(), channels });
@@ -654,7 +716,7 @@ function init() {
     renderFixtures(); syncSliders();
   };
   document.addEventListener("keydown", (e) => {
-    if (e.target.matches("input, select, textarea") || $("#settings").open) return;
+    if (e.target.matches("input, select, textarea") || $("#settings").open || $("#addDlg").open) return;
     if (e.key === "b" || e.key === "B" || e.key === "и" || e.key === "И") send({ cmd: "blackout" });
     if ((e.ctrlKey || e.metaKey) && e.key === "a") { e.preventDefault(); $("#selAll").click(); }
     if (e.key === "Escape") $("#selNone").click();

@@ -344,7 +344,10 @@ def find_udmx_devices() -> list[dict]:
 class UDmxOutput(Output):
     kind = "udmx"
     refresh_hz = 30.0
-    keepalive_s = 1.0   # uDMX сам безперервно оновлює лінію DMX зі свого буфера
+    # Шлемо кадр безперервно (~30/с), як QLC+. Багато клонів uDMX передають DMX лише
+    # після запису по USB, а дешеві прилади (зокрема LED-бари) ігнорують одиночні
+    # кадри й рідкий сигнал — колір тоді змінювався лише під час руху повзунка.
+    keepalive_s = None
 
     def open(self) -> None:
         if not _usb_backends():

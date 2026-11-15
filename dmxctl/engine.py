@@ -76,8 +76,7 @@ class Engine:
     # ------------------------------------------------------- persistence --
     def load(self) -> None:
         if not self.config_path.exists():
-            self._demo_patch()
-            return
+            return  # перший запуск: прилади додає користувач
         cfg = json.loads(self.config_path.read_text("utf-8"))
         self.profiles.update(cfg.get("profiles", {}))
         self.fixtures = [Fixture.from_dict(f) for f in cfg.get("fixtures", [])]
@@ -86,13 +85,6 @@ class Engine:
             self.static_colors = cfg["static_colors"]
         self.output_cfg = cfg.get("output", {"type": "udmx"})
         self.master = int(cfg.get("master", 255))
-
-    def _demo_patch(self) -> None:
-        for i in range(4):
-            self.fixtures.append(Fixture(id=uuid.uuid4().hex[:8], name=f"Прожектор {i + 1}",
-                                         address=1 + i * 4, profile="Dim+RGB (4 кан.)",
-                                         r=255, g=120, b=40))
-        self._dirty_save = True
 
     def save(self) -> None:
         custom = {k: v for k, v in self.profiles.items() if DEFAULT_PROFILES.get(k) != v}

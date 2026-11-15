@@ -80,8 +80,10 @@ def test_effects_return_valid_colors():
 
 def test_engine_commands_and_scene_fade(tmp_path):
     eng = Engine(tmp_path / "cfg.json")
+    assert eng.fixtures == []  # перший запуск — без приладів
+    eng.handle({"cmd": "add_fixture", "profile": "Dim+RGB (4 кан.)", "address": 1, "count": 4})
     ids = [f.id for f in eng.fixtures]
-    assert len(ids) == 4  # демо-патч
+    assert len(ids) == 4
     eng.handle({"cmd": "set_color", "ids": ids[:1], "hex": "#00ff00", "dimmer": 255})
     frame = eng.render(0)
     assert list(frame[0:4]) == [255, 0, 255, 0]
@@ -134,6 +136,7 @@ def test_udmx_open_without_device_reports_clear_error():
 
 def test_static_color_stops_effect_and_uses_white_channel(tmp_path):
     eng = Engine(tmp_path / "cfg.json")
+    eng.handle({"cmd": "add_fixture", "profile": "Dim+RGB (4 кан.)", "address": 1})
     eng.handle({"cmd": "add_fixture", "profile": "RGBW (4 кан.)", "address": 100})
     rgb_fx, rgbw_fx = eng.fixtures[0], eng.fixtures[-1]
     all_ids = [f.id for f in eng.fixtures]
@@ -225,3 +228,26 @@ def test_scene_restores_segments(tmp_path):
     assert 120 <= fx.segs[7][0] <= 135
     eng.render(start + 2)
     assert fx.segs[7] == [255, 255, 255]
+
+
+def test_udmx_streams_frames_continuously():
+    """Кадр має йти безперервно, навіть якщо він не змінюється (інакше бари не реагують)."""
+    import time
+    from dmxctl.outputs import UDmxOutput
+
+    sent = []
+
+    class FakeDev:
+        def ctrl_transfer(self, bm, req, value, index, data, timeout):
+            sent.append(bytes(data[:3]))
+            return len(data)
+
+    out = UDmxOutput()
+    out.open = lambda: setattr(out, "dev", FakeDev())
+    out.close = lambda: None
+    out.start()
+    out.set_frame(bytes([10, 20, 30]) + bytes(509))
+    time.sleep(0.5)
+    out.stop()
+    same = [s for s in sent if s == bytes([10, 20, 30])]
+    assert len(same) >= 8, f"за 0.5 с надіслано лише {len(same)} кадрів"

@@ -178,3 +178,10 @@ dialog::backdrop { background: #000a; }
 .fx .lamp.bar span:hover { outline: 1px solid #ffffff80; }
 .fx .lamp.bar span.sel { outline: 2px solid var(--accent); }
 .grow-text { flex: 1; text-align: right; }
+
+.small-dlg { width: min(560px, 96vw); }
+.grid3 { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 10px; }
+.empty-state { grid-column: 1 / -1; text-align: center; padding: 28px 10px; border: 1px dashed var(--line);
+  border-radius: var(--radius); color: var(--muted); }
+.empty-state .btn { margin-top: 10px; }
+@media (max-width: 720px) { .grid3 { grid-template-columns: 1fr 1fr; } .grid3 label:first-child { grid-column: 1 / -1; } }

@@ -37,13 +37,14 @@
     <div class="panel-head">
       <h2>Прилади</h2>
       <div class="actions">
+        <button class="btn small primary" id="openAdd" title="Додати прилад">＋ Додати</button>
         <button class="btn small" id="selAll">Усі</button>
         <button class="btn small" id="selNone">Жодного</button>
         <button class="btn small" id="selInvert">Інверсія</button>
       </div>
     </div>
     <div id="fixtureGrid" class="fixture-grid"></div>
-    <p class="hint">Клік — вибір приладу, можна кілька. У LED-барів (WASH 243 у режимах 6/12/24 кан.) клік по сегменту вибирає окремий сегмент. Delete / 0 — очистити кольори.</p>
+    <p class="hint">Клік — вибір одного приладу. <b>Shift + клік</b> — додати до вибору ще прилади. У LED-барів (WASH 243 у режимах 6/12/24 кан.) клік по сегменту вибирає окремий сегмент. Delete / 0 — очистити кольори.</p>
   </section>
 
   <section class="panel color-panel">
@@ -171,17 +172,10 @@
       <tbody id="patchBody"></tbody>
     </table>
     <div id="overlapWarn" class="warn" hidden></div>
-    <h3>Додати прилади</h3>
-    <div class="form grid4">
-      <label>Назва <input id="addName" placeholder="Прожектор"></label>
-      <label>Стартова адреса <input id="addAddress" type="number" min="1" max="512" value="1"></label>
-      <label>Профіль <select id="addProfile"></select></label>
-      <label>Кількість <input id="addCount" type="number" min="1" max="64" value="1"></label>
+    <div class="row" style="margin-top:12px">
+      <button class="btn primary" type="button" data-open-add>＋ Додати прилад</button>
     </div>
-    <div class="row">
-      <button class="btn primary" id="addFixture" type="button">Додати</button>
-      <span class="hint">Кілька приладів отримають послідовні адреси.</span>
-    </div>
+  </div>
   </div>
 
   <div id="tabProfiles" class="tab">
@@ -211,6 +205,27 @@
     <h3>Вимкнення</h3>
     <p class="hint">Програма працює у фоні й тримає світло, навіть якщо закрити вікно. Щоб повністю вийти (прожектори згаснуть):</p>
     <button class="btn danger" id="quitApp" type="button">Вимкнути програму</button>
+  </div>
+</dialog>
+
+<dialog id="addDlg" class="small-dlg">
+  <form method="dialog" class="dialog-head">
+    <h2>Новий прилад</h2>
+    <button class="btn ghost" value="close">✕</button>
+  </form>
+  <div class="form">
+    <label>Профіль (режим DMX на приладі) <select id="addProfile"></select></label>
+    <p id="addInfo" class="hint"></p>
+    <div class="grid3">
+      <label>Назва <input id="addName" placeholder="Прожектор"></label>
+      <label>Стартова адреса <input id="addAddress" type="number" min="1" max="512" value="1"></label>
+      <label>Кількість <input id="addCount" type="number" min="1" max="64" value="1"></label>
+    </div>
+    <p class="hint">Адреса й режим мають збігатися з налаштуваннями в меню самого приладу. Кілька приладів отримають послідовні адреси.</p>
+    <div class="row">
+      <button class="btn primary" id="addFixture" type="button">Додати</button>
+      <button class="btn" type="button" onclick="this.closest('dialog').close()">Скасувати</button>
+    </div>
   </div>
 </dialog>
 
