@@ -304,9 +304,61 @@ $script:Failed = $false
 $script:Warned = $false
 $script:Done = $false
 
-function App-Running {
-    $c = New-Object Net.Sockets.TcpClient
-    try { return $c.ConnectAsync('127.0.0.1', 8080).Wait(400) -and $c.Connected } catch { return $false } finally { $c.Close() }
+# Запущена SC DMX: її процеси (python/pythonw з dmxctl або sc-dmx.pyw) або сама програма на порту 8080.
+# Інший застосунок на порту 8080 — це не SC DMX, встановленню він не заважає.
+function Get-AppProcs {
+    try {
+        @(Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" -ErrorAction Stop |
+            Where-Object { $_.CommandLine -match 'dmxctl|sc-dmx\.pyw' })
+    } catch { @() }
+}
+function Test-ScDmxServer {
+    try {
+        $r = [Net.WebRequest]::Create('http://127.0.0.1:8080/')
+        $r.Timeout = 1500
+        $resp = $r.GetResponse()
+        $text = (New-Object IO.StreamReader ($resp.GetResponseStream())).ReadToEnd()
+        $resp.Close()
+        return $text -match '<title>SC DMX</title>'
+    } catch { return $false }
+}
+function App-Running { return ((Get-AppProcs).Count -gt 0) -or (Test-ScDmxServer) }
+
+function Pump { $win.Dispatcher.Invoke([Action]{ }, [Windows.Threading.DispatcherPriority]::Background) }
+
+# Закриває SC DMX так само, як кнопка закриття у вікні програми (світло гасне), а що лишилося — зупиняє
+function Close-App {
+    Show-Note 'Закриваю SC DMX…' 'info'
+    $ui.MainBtn.IsEnabled = $false
+    Pump
+    try {
+        $ws = New-Object Net.WebSockets.ClientWebSocket
+        if ($ws.ConnectAsync([Uri]'ws://127.0.0.1:8080/ws', [Threading.CancellationToken]::None).Wait(2000)) {
+            $bytes = [Text.Encoding]::UTF8.GetBytes('{"cmd":"quit"}')
+            $seg = New-Object 'ArraySegment[byte]' -ArgumentList (, $bytes)
+            [void]$ws.SendAsync($seg, [Net.WebSockets.WebSocketMessageType]::Text, $true,
+                                [Threading.CancellationToken]::None).Wait(2000)
+            Write-Log 'Програмі надіслано команду закриття'
+        }
+        $ws.Dispose()
+    } catch { Write-Log "Команда закриття не дійшла: $_" }
+    $end = (Get-Date).AddSeconds(12)
+    while ((Get-Date) -lt $end -and (App-Running)) { Start-Sleep -Milliseconds 300; Pump }
+    foreach ($p in Get-AppProcs) {
+        Write-Log "Зупиняю процес $($p.ProcessId): $($p.CommandLine)"
+        try { Stop-Process -Id $p.ProcessId -Force -ErrorAction Stop } catch { }
+    }
+    Start-Sleep -Milliseconds 600
+    $ui.MainBtn.IsEnabled = $true
+    $ok = -not (App-Running)
+    Write-Log ("SC DMX закрито: " + $ok)
+    return $ok
+}
+
+function Show-RunningNote {
+    Show-Note 'SC DMX зараз відкрито. Щоб встановити нову версію, інсталятор закриє програму, прожектори згаснуть. Налаштування й сцени збережуться.' 'warn'
+    $ui.MainBtn.Content = 'Закрити SC DMX і встановити'
+    $script:CloseMode = $true
 }
 
 function Enter-Step($id) {
@@ -344,8 +396,18 @@ function Handle-Line($line) {
 }
 
 function Start-Install {
+    if (App-Running) {
+        if (-not $script:CloseMode -and -not $AutoTest) { Show-RunningNote; return }
+        Save-Shot '0-running'
+        if (-not (Close-App)) {
+            Show-Note 'Не вдалося закрити SC DMX. Закрийте вікно програми вручну й натисніть «Встановити».' 'error'
+            $ui.MainBtn.Content = 'Встановити'
+            $script:CloseMode = $false
+            return
+        }
+    }
+    $script:CloseMode = $false
     $ui.Note.Visibility = 'Collapsed'
-    if (App-Running) { Show-Note 'SC DMX зараз відкрито. Закрийте вікно програми й натисніть «Встановити» ще раз.' 'warn'; return }
     foreach ($id in $Order) { Set-StepState $id 'wait' }
     $script:Failed = $false; $script:Warned = $false; $script:Done = $false; $script:DepLines = 0; $script:CurStep = $null
     $ui.Bar.Value = 0
@@ -471,6 +533,10 @@ $win.Add_ContentRendered({
     [void][ScDmx.Native]::SetForegroundWindow($h)
     $win.Activate() | Out-Null
     Write-Log ("Вікно видиме: " + [ScDmx.Native]::IsWindowVisible($h))
+    if (-not $AutoTest -and -not $script:Checked) {
+        $script:Checked = $true
+        if (App-Running) { Show-RunningNote }
+    }
     if ($AutoTest -and -not $script:Started) {
         $script:Started = $true
         Save-Shot '1-welcome'

@@ -33,7 +33,11 @@ jobs:
         run: |
           $env:SCDMX_SETUP_AUTOTEST = '1'
           $env:SCDMX_SETUP_SHOTS = "$pwd\shots"
+          # чужий сервер на порту 8080 — встановленню не заважає
+          $other = Start-Process python -ArgumentList '-m', 'http.server', '8080' -PassThru -WindowStyle Hidden
+          Start-Sleep -Seconds 2
           $p = Start-Process .\SC-DMX-Setup.exe -PassThru -Wait
+          Stop-Process -Id $other.Id -Force
           "Код виходу інсталятора: $($p.ExitCode)"
           Get-Content "$env:TEMP\SC-DMX-install.log" -Encoding UTF8 | Select-Object -Last 40
           $app = Join-Path $env:LOCALAPPDATA 'SC-DMX'
@@ -86,6 +90,19 @@ jobs:
           Pop-Location
           Get-Content (Join-Path $app 'sc-dmx.log') -ErrorAction SilentlyContinue | Select-Object -Last 20
 
+      - name: Повторне встановлення, коли SC DMX відкрито
+        shell: pwsh
+        run: |
+          $env:SCDMX_SETUP_AUTOTEST = '1'
+          $env:SCDMX_SETUP_SHOTS = "$pwd\shots\again"
+          $p = Start-Process .\SC-DMX-Setup.exe -PassThru -Wait
+          "Код виходу інсталятора: $($p.ExitCode)"
+          Get-Content "$env:TEMP\SC-DMX-install.log" -Encoding UTF8 | Select-String 'закриття|Зупиняю|закрито|Завершено'
+          $left = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'dmxctl|sc-dmx\.pyw' }
+          "Процесів SC DMX після встановлення: $(@($left).Count)"
+          if ($p.ExitCode -ne 0) { exit 1 }
+          Copy-Item "$env:TEMP\SC-DMX-install.log" shots\install-again.log -ErrorAction SilentlyContinue
+
       - name: Артефакти
         if: always()
         shell: pwsh
@@ -97,7 +114,7 @@ jobs:
         shell: pwsh
         run: |
           Add-Type -AssemblyName System.Drawing
-          foreach ($f in Get-ChildItem shots -Filter *.png) {
+          foreach ($f in Get-ChildItem shots -Filter *.png -Recurse) {
             $img = [System.Drawing.Image]::FromFile($f.FullName)
             $k = [Math]::Min(1.0, 1400 / $img.Width)
             $bmp = New-Object System.Drawing.Bitmap ([int]($img.Width * $k)), ([int]($img.Height * $k))
@@ -108,7 +125,7 @@ jobs:
             $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Jpeg)
             $b64 = [Convert]::ToBase64String($ms.ToArray())
             for ($i = 0; $i -lt $b64.Length; $i += 3000) {
-              "SHOT|$($f.BaseName)|" + $b64.Substring($i, [Math]::Min(3000, $b64.Length - $i))
+              "SHOT|$($f.Directory.Name)-$($f.BaseName)|" + $b64.Substring($i, [Math]::Min(3000, $b64.Length - $i))
             }
           }
       - uses: actions/upload-artifact@v4

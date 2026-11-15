@@ -102,7 +102,8 @@ if ($PSScriptRoot -and (Test-Path (Join-Path $PSScriptRoot 'dmxctl\__init__.py')
 
 # Якщо програма запущена — її треба закрити, щоб оновити файли
 $running = $false
-try { $null = Invoke-WebRequest 'http://127.0.0.1:8080/' -UseBasicParsing -TimeoutSec 2; $running = $true } catch { }
+# (інший застосунок на порту 8080 — не SC DMX: він встановленню не заважає)
+try { $running = (Invoke-WebRequest 'http://127.0.0.1:8080/' -UseBasicParsing -TimeoutSec 2).Content -match '<title>SC DMX</title>' } catch { }
 if ($running) {
     if ($Progress) { Fail 'SC DMX зараз відкрито. Закрийте вікно програми й спробуйте ще раз.' }
     Write-Host 'SC DMX зараз відкрито. Закрийте вікно програми й натисніть Enter.' -ForegroundColor Yellow

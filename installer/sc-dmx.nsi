@@ -100,7 +100,7 @@ FunctionEnd
 
 Section "Uninstall"
   ; програма має бути закрита, інакше файли зайняті
-  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -Command "try { Invoke-WebRequest http://127.0.0.1:8080/ -UseBasicParsing -TimeoutSec 2 | Out-Null; exit 1 } catch { exit 0 }"'
+  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -Command "try { if ((Invoke-WebRequest http://127.0.0.1:8080/ -UseBasicParsing -TimeoutSec 2).Content -match $\'<title>SC DMX</title>$\') { exit 1 } } catch { }; exit 0"'
   Pop $0
   ${If} $0 == 1
     MessageBox MB_ICONEXCLAMATION "SC DMX зараз відкрито. Закрийте вікно програми й запустіть видалення ще раз." /SD IDOK
