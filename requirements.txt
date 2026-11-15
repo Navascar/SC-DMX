@@ -4,3 +4,5 @@ libusb-package>=1.0.26
 pyserial>=3.5
 # власне вікно програми (вбудований Chromium; не залежить від Edge і не потребує інтернету)
 PySide6-WebEngine>=6.12; sys_platform == "win32" and platform_machine == "AMD64"
+# ярлики й панель задач Windows: «SC DMX» з власною іконкою замість «Python»
+pywin32>=306; sys_platform == "win32"

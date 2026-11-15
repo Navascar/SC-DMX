@@ -1,6 +1,6 @@
 ﻿# SC DMX — інсталятор для Windows.
 #
-# Найпростіше: SC-DMX-Setup.exe зі сторінки релізів (він сам запускає цей скрипт).
+# Найпростіше: SC-DMX-Setup.exe зі сторінки релізів (показує вікно встановлення й сам запускає цей скрипт).
 # Запуск з розпакованого архіву:  install.bat
 # Або одним рядком у PowerShell (завантажить останню версію з GitHub):
 #   $s = irm https://raw.githubusercontent.com/Navascar/SC-DMX/main/install.ps1; iex $s.TrimStart([char]0xFEFF)
@@ -9,9 +9,11 @@
 # встановлює залежності, створює ярлики «SC DMX» на робочому столі та в меню «Пуск» і запускає програму.
 # Повторний запуск безпечний: налаштування (config.json) зберігаються.
 #
-# -NoLaunch — не запускати програму наприкінці (так робить SC-DMX-Setup.exe: запуск — з його останньої сторінки).
+# -NoLaunch  — не запускати програму наприкінці.
+# -Progress  — режим для вікна встановлення (installer/setup-gui.ps1): без запитань і консолі,
+#              хід встановлення — рядками @@STEP|крок|текст, @@LOG|текст, @@WARN|..., @@ERROR|текст, @@DONE.
 
-param([switch]$NoLaunch)
+param([switch]$NoLaunch, [switch]$Progress)
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -19,12 +21,29 @@ $ProgressPreference = 'SilentlyContinue'
 $Repo = 'Navascar/SC-DMX'
 $AppDir = Join-Path $env:LOCALAPPDATA 'SC-DMX'
 
-function Step($text) { Write-Host "`n==> $text" -ForegroundColor Cyan }
+function Emit($line) { [Console]::Out.WriteLine($line); [Console]::Out.Flush() }
+function Step($id, $text) {
+    if ($Progress) { Emit "@@STEP|$id|$text" } else { Write-Host "`n==> $text" -ForegroundColor Cyan }
+}
+function Log($text) {
+    $text = "$text".TrimEnd()
+    if (-not $text) { return }
+    if ($Progress) { Emit ("@@LOG|" + ($text -replace '[\r\n]+', ' ')) } else { Write-Host "  $text" }
+}
 function Fail($text) {
+    if ($Progress) { Emit "@@ERROR|$text"; exit 1 }
     Write-Host "`nПОМИЛКА: $text" -ForegroundColor Red
     if ($Host.Name -eq 'ConsoleHost') { Read-Host 'Натисніть Enter, щоб закрити' | Out-Null }
     exit 1
 }
+# Зовнішня програма (pip, winget…): її вивід — у журнал, повідомлення в stderr не зупиняють скрипт
+function Run($exe, [string[]]$arguments) {
+    $old = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { & $exe @arguments 2>&1 | ForEach-Object { Log ([string]$_) } } finally { $ErrorActionPreference = $old }
+    return $LASTEXITCODE
+}
+trap { Fail "$($_.Exception.Message)" }
 
 # ---------------------------------------------------------------- Python ---
 function Find-Python {
@@ -37,12 +56,13 @@ function Find-Python {
     return $null
 }
 
-Step 'Пошук Python 3.10+'
+Step 'python' 'Пошук Python 3.10+'
 $Python = Find-Python
 if (-not $Python) {
     if (Get-Command winget -ErrorAction SilentlyContinue) {
-        Write-Host 'Python не знайдено — встановлюю через winget...'
-        winget install -e --id Python.Python.3.13 --scope user --accept-package-agreements --accept-source-agreements
+        Step 'python' 'Встановлення Python 3.13 (winget)'
+        $null = Run 'winget' @('install', '-e', '--id', 'Python.Python.3.13', '--scope', 'user', '--silent',
+                               '--accept-package-agreements', '--accept-source-agreements', '--disable-interactivity')
         $env:Path = [Environment]::GetEnvironmentVariable('Path', 'User') + ';' + [Environment]::GetEnvironmentVariable('Path', 'Machine')
         $Python = Find-Python
         if (-not $Python) {
@@ -51,25 +71,25 @@ if (-not $Python) {
         }
     }
     if (-not $Python) {
-        Start-Process 'https://www.python.org/downloads/'
-        Fail 'Python 3.10+ не знайдено. Встановіть його з python.org (позначте "Add python.exe to PATH") і запустіть інсталятор знову.'
+        if (-not $Progress) { Start-Process 'https://www.python.org/downloads/' }
+        Fail 'Python 3.10+ не знайдено. Встановіть його з python.org (позначте "Add python.exe to PATH") і запустіть встановлення знову.'
     }
 }
-Write-Host "Python: $Python"
+Log "Python: $Python"
 
 # ------------------------------------------------------------- джерело ----
 $Src = $null
 $Tmp = $null
 if ($PSScriptRoot -and (Test-Path (Join-Path $PSScriptRoot 'dmxctl\__init__.py'))) {
     $Src = $PSScriptRoot
-    Step "Встановлення з теки $Src"
+    Step 'files' "Копіювання програми"
 } else {
-    Step 'Завантаження останньої версії з GitHub'
+    Step 'files' 'Завантаження останньої версії з GitHub'
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     $rel = Invoke-RestMethod "https://api.github.com/repos/$Repo/releases/latest" -Headers @{ 'User-Agent' = 'SC-DMX-installer' }
     $asset = $rel.assets | Where-Object { $_.name -eq 'SC-DMX.zip' } | Select-Object -First 1
     $url = if ($asset) { $asset.browser_download_url } else { $rel.zipball_url }
-    Write-Host "Версія $($rel.tag_name)"
+    Log "Версія $($rel.tag_name)"
     $Tmp = Join-Path $env:TEMP ("sc-dmx-" + [guid]::NewGuid())
     New-Item -ItemType Directory $Tmp | Out-Null
     $zip = Join-Path $Tmp 'SC-DMX.zip'
@@ -80,20 +100,22 @@ if ($PSScriptRoot -and (Test-Path (Join-Path $PSScriptRoot 'dmxctl\__init__.py')
     if (-not $Src) { Fail 'В архіві немає програми.' }
 }
 
-# Якщо програма запущена — просимо її вимкнутися, щоб оновити файли
-try {
-    $null = Invoke-WebRequest 'http://127.0.0.1:8080/' -UseBasicParsing -TimeoutSec 2
+# Якщо програма запущена — її треба закрити, щоб оновити файли
+$running = $false
+try { $null = Invoke-WebRequest 'http://127.0.0.1:8080/' -UseBasicParsing -TimeoutSec 2; $running = $true } catch { }
+if ($running) {
+    if ($Progress) { Fail 'SC DMX зараз відкрито. Закрийте вікно програми й спробуйте ще раз.' }
     Write-Host 'SC DMX зараз відкрито. Закрийте вікно програми й натисніть Enter.' -ForegroundColor Yellow
     Read-Host | Out-Null
-} catch { }
+}
 
 # ------------------------------------------------------------- копіювання ---
-Step "Копіювання в $AppDir"
+Log "Тека програми: $AppDir"
 New-Item -ItemType Directory -Force $AppDir | Out-Null
 if ((Resolve-Path $Src).Path.TrimEnd('\') -ne (Resolve-Path $AppDir).Path.TrimEnd('\')) {
     $keep = @('config.json', '.venv', 'sc-dmx.log', '.git', 'Uninstall.exe')
     Get-ChildItem $AppDir -Force | Where-Object { $keep -notcontains $_.Name } | Remove-Item -Recurse -Force
-    Get-ChildItem $Src -Force | Where-Object { @('.venv', '.git', 'sc-dmx.log') -notcontains $_.Name } | ForEach-Object {
+    Get-ChildItem $Src -Force | Where-Object { @('.venv', '.git', 'sc-dmx.log', 'installer') -notcontains $_.Name } | ForEach-Object {
         if ($_.Name -eq 'config.json') {
             # налаштування зі старої теки переносимо лише якщо нових ще немає
             if (-not (Test-Path (Join-Path $AppDir 'config.json'))) { Copy-Item $_.FullName $AppDir }
@@ -106,57 +128,53 @@ if ($Tmp) { Remove-Item $Tmp -Recurse -Force -ErrorAction SilentlyContinue }
 
 # ---------------------------------------------------------- середовище ----
 $VenvPy = Join-Path $AppDir '.venv\Scripts\python.exe'
+$Pyw = Join-Path $AppDir '.venv\Scripts\pythonw.exe'
+Step 'venv' 'Середовище Python'
 if (-not (Test-Path $VenvPy)) {
-    Step 'Створення середовища Python'
-    & $Python -m venv (Join-Path $AppDir '.venv')
-    if ($LASTEXITCODE -ne 0) { Fail 'не вдалося створити віртуальне середовище' }
+    if ((Run $Python @('-m', 'venv', (Join-Path $AppDir '.venv'))) -ne 0) { Fail 'не вдалося створити віртуальне середовище' }
 }
-Step 'Встановлення залежностей (вперше — близько 250 МБ: вбудоване вікно програми)'
-& $VenvPy -m pip install --disable-pip-version-check -q --upgrade pip
-& $VenvPy -m pip install --disable-pip-version-check -r (Join-Path $AppDir 'requirements.txt')
-if ($LASTEXITCODE -ne 0) { Fail 'не вдалося встановити залежності (див. текст вище)' }
+Step 'deps' 'Встановлення залежностей (вперше — близько 250 МБ: вбудоване вікно програми)'
+$null = Run $VenvPy @('-m', 'pip', 'install', '--disable-pip-version-check', '--progress-bar', 'off', '-q', '--upgrade', 'pip')
+$code = Run $VenvPy @('-m', 'pip', 'install', '--disable-pip-version-check', '--progress-bar', 'off',
+                      '-r', (Join-Path $AppDir 'requirements.txt'))
+if ($code -ne 0) { Fail 'не вдалося встановити залежності. Перевірте інтернет і спробуйте ще раз.' }
 
 # --------------------------------------------------------------- ярлики ---
-Step 'Створення ярликів'
-$Pyw = Join-Path $AppDir '.venv\Scripts\pythonw.exe'
-$Icon = Join-Path $AppDir 'dmxctl\static\icon.ico'
-$shell = New-Object -ComObject WScript.Shell
-$places = @(
-    [Environment]::GetFolderPath('Desktop'),
-    (Join-Path ([Environment]::GetFolderPath('Programs')) '')
-)
-foreach ($dir in $places) {
-    $lnk = $shell.CreateShortcut((Join-Path $dir 'SC DMX.lnk'))
-    $lnk.TargetPath = $Pyw
-    $lnk.Arguments = '-m dmxctl --open'
-    $lnk.WorkingDirectory = $AppDir
-    $lnk.IconLocation = $Icon
-    $lnk.Description = 'SC DMX — керування RGB-прожекторами'
-    $lnk.Save()
+# Ярлики з ідентифікатором застосунку: на панелі задач — «SC DMX» з іконкою програми, а не «Python»
+Step 'shortcuts' 'Створення ярликів'
+Push-Location $AppDir
+$code = Run $VenvPy @('-m', 'dmxctl.winshell', 'install')
+Pop-Location
+if ($code -ne 0) {
+    Log 'Ярлики — запасним способом'
+    $shell = New-Object -ComObject WScript.Shell
+    foreach ($dir in @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs'))) {
+        $lnk = $shell.CreateShortcut((Join-Path $dir 'SC DMX.lnk'))
+        $lnk.TargetPath = $Pyw
+        $lnk.Arguments = '"' + (Join-Path $AppDir 'sc-dmx.pyw') + '"'
+        $lnk.WorkingDirectory = $AppDir
+        $lnk.IconLocation = Join-Path $AppDir 'dmxctl\static\icon.ico'
+        $lnk.Description = 'SC DMX — керування RGB-прожекторами'
+        $lnk.Save()
+    }
 }
 
 # ---------------------------------------------------------- перевірка uDMX ---
-Step 'Перевірка uDMX'
+Step 'udmx' 'Перевірка uDMX'
 Push-Location $AppDir
-& $VenvPy -m dmxctl --check
-$udmxOk = ($LASTEXITCODE -eq 0)
+$code = Run $VenvPy @('-m', 'dmxctl', '--check')
 Pop-Location
-if (-not $udmxOk) {
-    Write-Host @'
-
-uDMX поки не працює. Якщо адаптер підключено, встановіть драйвер WinUSB:
-  1. Завантажте Zadig: https://zadig.akeo.ie
-  2. Options -> List All Devices, виберіть "uDMX" (16C0 05DC)
-  3. Драйвер WinUSB -> Install / Replace Driver
-Програма сама підхопить адаптер, перезапускати не треба.
-'@ -ForegroundColor Yellow
+if ($code -ne 0) {
+    $hint = 'uDMX поки не працює. Якщо адаптер підключено, встановіть драйвер WinUSB через Zadig (https://zadig.akeo.ie): Options → List All Devices → «uDMX» → WinUSB → Install. Перезапускати програму не треба.'
+    if ($Progress) { Emit "@@WARN|udmx|$hint" } else { Write-Host "`n$hint" -ForegroundColor Yellow }
 }
 
+if ($Progress) { Emit '@@DONE'; exit 0 }
 if ($NoLaunch) {
-    Step 'Готово!'
+    Step 'done' 'Готово!'
     exit 0
 }
-Step 'Готово! Запускаю SC DMX'
+Step 'done' 'Готово! Запускаю SC DMX'
 Write-Host 'Надалі запускайте програму ярликом «SC DMX» на робочому столі. Оновлення програма пропонує сама.'
-Start-Process -FilePath $Pyw -ArgumentList '-m dmxctl --open' -WorkingDirectory $AppDir
+Start-Process -FilePath $Pyw -ArgumentList ('"' + (Join-Path $AppDir 'sc-dmx.pyw') + '"') -WorkingDirectory $AppDir
 if ($Host.Name -eq 'ConsoleHost' -and $PSScriptRoot) { Start-Sleep -Seconds 4 }

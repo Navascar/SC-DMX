@@ -3,9 +3,10 @@
 ; Збирається під час релізу (.github/workflows/release.yml):
 ;   makensis -DVERSION=1.21.0 -DSRC=<тека з файлами програми> installer/sc-dmx.nsi
 ;
-; Інсталятор містить усю програму. Він розпаковує її в тимчасову теку й запускає install.ps1:
-; той знаходить або встановлює Python, копіює програму в %LOCALAPPDATA%\SC-DMX (налаштування
-; зберігаються), ставить залежності й створює ярлики. Права адміністратора не потрібні.
+; Інсталятор містить усю програму. Він розпаковує її в тимчасову теку й відкриває вікно встановлення
+; (installer/setup-gui.ps1), яке у фоні запускає install.ps1: той знаходить або встановлює Python,
+; копіює програму в %LOCALAPPDATA%\SC-DMX (налаштування зберігаються), ставить залежності й
+; створює ярлики. Консоль не показується. Права адміністратора не потрібні.
 
 Unicode true
 SetCompressor /SOLID lzma
@@ -43,56 +44,41 @@ VIAddVersionKey /LANG=1058 "LegalCopyright" "${APP}"
 
 !define MUI_ICON "${SRC}\dmxctl\static\icon.ico"
 !define MUI_UNICON "${SRC}\dmxctl\static\icon.ico"
-!define MUI_ABORTWARNING
 
-!define MUI_WELCOMEPAGE_TITLE "Встановлення ${APP} ${VERSION}"
-!define MUI_WELCOMEPAGE_TEXT "Програма керує RGB-прожекторами через USB DMX (uDMX) та інші DMX-інтерфейси.$\r$\n$\r$\nІнсталятор встановить програму для поточного користувача. Якщо на комп'ютері немає Python, його буде встановлено автоматично.$\r$\n$\r$\nПід час першого встановлення завантажується близько 250 МБ (вбудоване вікно програми), тож потрібен інтернет. Відкриється вікно з ходом встановлення, не закривайте його.$\r$\n$\r$\nЯкщо SC DMX уже встановлено, програму буде оновлено, а налаштування й сцени збережуться."
-!insertmacro MUI_PAGE_WELCOME
-!insertmacro MUI_PAGE_INSTFILES
-!define MUI_FINISHPAGE_TITLE "${APP} встановлено"
-!define MUI_FINISHPAGE_TEXT "Надалі запускайте програму ярликом «SC DMX» на робочому столі або в меню «Пуск». Оновлення програма пропонує сама."
-!define MUI_FINISHPAGE_RUN
-!define MUI_FINISHPAGE_RUN_TEXT "Запустити SC DMX"
-!define MUI_FINISHPAGE_RUN_FUNCTION LaunchApp
-!insertmacro MUI_PAGE_FINISH
+; Власних сторінок у інсталятора немає: він мовчки розпаковує програму й відкриває вікно
+; встановлення в стилі SC DMX (installer/setup-gui.ps1). Сторінки NSIS — лише для видалення.
+SilentInstall silent
 
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
 
 !insertmacro MUI_LANGUAGE "Ukrainian"
 
-Function LaunchApp
-  SetOutPath "$INSTDIR"
-  Exec '"$INSTDIR\.venv\Scripts\pythonw.exe" -m dmxctl --open'
-FunctionEnd
-
 Section "SC DMX"
   InitPluginsDir
-  DetailPrint "Розпакування програми…"
   SetOutPath "$PLUGINSDIR\app"
   File /r /x ".git" /x "__pycache__" /x ".venv" /x "installer" "${SRC}\*.*"
+  SetOutPath "$PLUGINSDIR\app\installer"
+  File "${SRC}\installer\setup-gui.ps1"
 
-  DetailPrint "Встановлення: Python, залежності, ярлики (окреме вікно)…"
   ; інсталятор 32-бітний: на 64-бітній Windows беремо 64-бітний PowerShell
   StrCpy $1 "$WINDIR\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
   ${IfNot} ${FileExists} "$1"
     StrCpy $1 "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe"
   ${EndIf}
-  ExecWait '"$1" -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\app\install.ps1" -NoLaunch' $0
-  ${If} $0 != 0
-    SetOutPath "$TEMP"
-    MessageBox MB_ICONSTOP "Встановлення не завершено (код $0). Подробиці були у вікні встановлення.$\r$\nПеревірте інтернет і запустіть інсталятор ще раз."
-    Abort "Встановлення не завершено"
-  ${EndIf}
-  ${IfNot} ${FileExists} "$INSTDIR\.venv\Scripts\pythonw.exe"
-    SetOutPath "$TEMP"
-    MessageBox MB_ICONSTOP "Встановлення не завершено: не знайдено середовище Python програми."
-    Abort "Встановлення не завершено"
-  ${EndIf}
-
-  ; тимчасові файли більше не потрібні
+  ; nsExec — без вікна консолі; вікно встановлення показує сам setup-gui.ps1
+  nsExec::Exec '"$1" -NoProfile -STA -ExecutionPolicy Bypass -File "$PLUGINSDIR\app\installer\setup-gui.ps1" -Source "$PLUGINSDIR\app" -Version "${VERSION}"'
+  Pop $0
   SetOutPath "$TEMP"
   RMDir /r "$PLUGINSDIR\app"
+  ${If} $0 == 3
+  ${OrIf} $0 == "error"
+    MessageBox MB_ICONSTOP "Не вдалося відкрити вікно встановлення SC DMX.$\r$\nПодробиці — у файлі %TEMP%\SC-DMX-install.log"
+    Abort
+  ${EndIf}
+  ${If} $0 != 0
+    Abort   ; встановлення скасовано або не вдалося — вікно вже про це сказало
+  ${EndIf}
 
   WriteUninstaller "$INSTDIR\Uninstall.exe"
   WriteRegStr HKCU "${UNINST_KEY}" "DisplayName" "${APP}"

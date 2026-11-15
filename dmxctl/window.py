@@ -9,12 +9,15 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Callable
 
 ICON = Path(__file__).resolve().parent / "static" / "icon.ico"
+ICON_SVG = Path(__file__).resolve().parent / "static" / "icon.svg"
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
-APP_ID = "SCDMX.Controller"          # власний ідентифікатор для панелі задач Windows
+BG = "#0f1115"                       # фон інтерфейсу (style.css: --bg) — без білого спалаху
+SERVER_WAIT_S = 90                   # скільки чекати на сервер програми під час запуску
 CLOSE_SIGNAL = "__SCDMX_CLOSE__"     # заголовок сторінки, яким інтерфейс просить закрити вікно
 
 
@@ -25,6 +28,29 @@ def available() -> bool:
         return True
     except Exception:  # noqa: BLE001 — немає пакета або системних бібліотек
         return False
+
+
+def loading_html(text: str, error: bool = False) -> str:
+    """Екран завантаження у стилі інтерфейсу (кольори й шрифт — як у style.css)."""
+    import html
+    try:
+        logo = ICON_SVG.read_text("utf-8")
+    except OSError:
+        logo = ""
+    color = "#ff6b6b" if error else "#9aa1ae"
+    spinner = "" if error else '<div class="spin"></div>'
+    return f"""<!doctype html><html lang="uk"><meta charset="utf-8"><style>
+html,body{{margin:0;height:100%;background:{BG};color:#e6e8ee;
+  font:14px/1.45 system-ui,"Segoe UI",Roboto,sans-serif;user-select:none;cursor:default}}
+body{{display:grid;place-items:center}}
+.box{{display:grid;justify-items:center;gap:16px;text-align:center;max-width:420px;padding:24px}}
+.logo svg{{width:72px;height:72px;display:block}}
+h1{{margin:0;font-size:20px;letter-spacing:.02em}}
+p{{margin:0;color:{color};font-size:12px}}
+.spin{{width:22px;height:22px;border-radius:50%;border:2px solid #2b303b;border-top-color:#4f8cff;
+  animation:r .8s linear infinite}}
+@keyframes r{{to{{transform:rotate(360deg)}}}}
+</style><div class="box"><div class="logo">{logo}</div><h1>SC DMX</h1>{spinner}<p>{html.escape(text)}</p></div></html>"""
 
 
 def run_window(url: str, should_close: Callable[[], bool] = lambda: False) -> int:
@@ -38,13 +64,11 @@ def run_window(url: str, should_close: Callable[[], bool] = lambda: False) -> in
     from PySide6.QtWebEngineWidgets import QWebEngineView
     from PySide6.QtWidgets import QApplication, QMainWindow
 
+    from PySide6.QtGui import QColor
     if sys.platform == "win32":
-        # Інакше Windows вважає вікно частиною pythonw.exe і показує в панелі задач іконку Python
-        try:
-            import ctypes
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
-        except Exception:  # noqa: BLE001
-            pass
+        # Інакше Windows вважає вікно частиною pythonw.exe і показує в панелі задач «Python»
+        from . import winshell
+        winshell.set_process_id()
     from PySide6.QtWidgets import QFileDialog, QMessageBox
 
     app = QApplication.instance() or QApplication(sys.argv[:1])
@@ -76,8 +100,37 @@ def run_window(url: str, should_close: Callable[[], bool] = lambda: False) -> in
     view = QWebEngineView(win)
     view.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)  # меню — власне, у самій програмі
     view.setPage(Page(QWebEngineProfile.defaultProfile(), view))
-    view.load(QUrl(url))
+    # Поки вбудований Chromium стартує (уперше — кілька секунд) і поки запускається сервер,
+    # вікно показує екран завантаження у стилі програми, а не біле поле.
+    win.setStyleSheet(f"QMainWindow, QWebEngineView {{ background: {BG}; }}")
+    view.page().setBackgroundColor(QColor(BG))
+    view.setHtml(loading_html("Запуск…"))
     win.setCentralWidget(view)
+
+    def server_ready() -> bool:
+        import socket
+        parts = QUrl(url)
+        try:
+            with socket.create_connection((parts.host() or "127.0.0.1", parts.port(80)), timeout=0.3):
+                return True
+        except OSError:
+            return False
+
+    boot = {"t0": time.monotonic(), "loaded": False}
+
+    def try_load():
+        if boot["loaded"]:
+            return
+        if server_ready():
+            boot["loaded"] = True
+            view.load(QUrl(url))
+        elif time.monotonic() - boot["t0"] > SERVER_WAIT_S:
+            boot["loaded"] = True
+            view.setHtml(loading_html("Не вдалося запустити програму. Закрийте вікно й відкрийте SC DMX знову.", error=True))
+        else:
+            QTimer.singleShot(250, try_load)
+
+    QTimer.singleShot(0, try_load)
 
     # Файли, які віддає програма (напр. сцена .scdmx), — через діалог «Зберегти як»
     def on_download(req):
@@ -114,6 +167,19 @@ def run_window(url: str, should_close: Callable[[], bool] = lambda: False) -> in
 
     if ICON.exists():
         win.setWindowIcon(QIcon(str(ICON)))
+
+    if sys.platform == "win32":
+        # ще до показу: заголовок у кольорах програми й «SC DMX» на панелі задач замість «Python»
+        hwnd = int(win.winId())
+        for step in (winshell.style_title_bar, winshell.set_window_identity):
+            try:
+                step(hwnd)
+            except Exception:  # noqa: BLE001 — старі Windows або немає pywin32: просто без цього
+                pass
+        try:
+            winshell.repair_shortcuts()   # ярлики старих версій — з ідентифікатором застосунку
+        except Exception:  # noqa: BLE001
+            pass
 
     # Закриття — лише після підтвердження: власне вікно інтерфейсу, а якщо інтерфейс
     # недоступний (немає звʼязку з програмою) — системне вікно Qt.

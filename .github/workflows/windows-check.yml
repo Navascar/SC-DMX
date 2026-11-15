@@ -1,0 +1,99 @@
+# Перевірка інсталятора й вікна програми на справжній Windows (гілки, крім main, і вручну).
+# Знімки вікна встановлення, екрана з програмою та журнали — в артефакті windows-check.
+name: Windows check
+
+on:
+  push:
+    branches-ignore: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Збірка SC-DMX-Setup.exe
+        shell: pwsh
+        run: |
+          $nsis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
+          if (-not (Test-Path $nsis)) { choco install nsis -y --no-progress | Out-Null }
+          New-Item -ItemType Directory -Force build\app | Out-Null
+          git archive --format=zip -o build\src.zip HEAD
+          Expand-Archive build\src.zip -DestinationPath build\app
+          & $nsis -V2 -DVERSION=0.0.1 "-DSRC=$pwd\build\app" "-DOUTFILE=$pwd\SC-DMX-Setup.exe" installer\sc-dmx.nsi
+          if ($LASTEXITCODE) { exit 1 }
+
+      - name: Встановлення (вікно в режимі автоперевірки)
+        shell: pwsh
+        run: |
+          $env:SCDMX_SETUP_AUTOTEST = '1'
+          $env:SCDMX_SETUP_SHOTS = "$pwd\shots"
+          $p = Start-Process .\SC-DMX-Setup.exe -PassThru -Wait
+          "Код виходу інсталятора: $($p.ExitCode)"
+          Get-Content "$env:TEMP\SC-DMX-install.log" -Encoding UTF8 | Select-Object -Last 40
+          $app = Join-Path $env:LOCALAPPDATA 'SC-DMX'
+          foreach ($f in 'Uninstall.exe', 'sc-dmx.pyw', '.venv\Scripts\pythonw.exe') {
+            "{0,-28} {1}" -f $f, (Test-Path (Join-Path $app $f))
+          }
+          if (-not (Test-Path (Join-Path $app 'Uninstall.exe'))) { exit 1 }
+
+      - name: Ярлики й ідентифікатор застосунку
+        shell: pwsh
+        run: |
+          $app = Join-Path $env:LOCALAPPDATA 'SC-DMX'
+          Push-Location $app
+          .\.venv\Scripts\python.exe -c "from dmxctl import winshell as w; [print(d/'SC DMX.lnk', w._read_id(d/'SC DMX.lnk')) for d in w._shortcut_dirs()]"
+          Pop-Location
+
+      - name: Запуск програми, знімок екрана, панель задач
+        shell: pwsh
+        run: |
+          $lnk = Join-Path ([Environment]::GetFolderPath('Programs')) 'SC DMX.lnk'
+          Start-Process $lnk
+          Start-Sleep -Seconds 25
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+          $g = [System.Drawing.Graphics]::FromImage($bmp)
+          $g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+          New-Item -ItemType Directory -Force shots | Out-Null
+          $bmp.Save("$pwd\shots\4-app-screen.png")
+          $app = Join-Path $env:LOCALAPPDATA 'SC-DMX'
+          Push-Location $app
+          @'
+          import win32gui
+          from win32com.propsys import propsys, pscon
+          def cb(h, out):
+              if win32gui.IsWindowVisible(h) and win32gui.GetWindowText(h) == "SC DMX":
+                  out.append(h)
+          wins = []
+          win32gui.EnumWindows(cb, wins)
+          print("Вікна SC DMX:", wins)
+          for h in wins:
+              s = propsys.SHGetPropertyStoreForWindow(h, propsys.IID_IPropertyStore)
+              for k in ("ID", "RelaunchCommand", "RelaunchDisplayNameResource", "RelaunchIconResource"):
+                  try:
+                      print(k, "=", s.GetValue(getattr(pscon, "PKEY_AppUserModel_" + k)).GetValue())
+                  except Exception as e:
+                      print(k, "!", e)
+          '@ | Set-Content check.py -Encoding UTF8
+          .\.venv\Scripts\python.exe check.py
+          Pop-Location
+          Get-Content (Join-Path $app 'sc-dmx.log') -ErrorAction SilentlyContinue | Select-Object -Last 20
+
+      - name: Артефакти
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force shots | Out-Null
+          Copy-Item "$env:TEMP\SC-DMX-install.log" shots\ -ErrorAction SilentlyContinue
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-check
+          path: shots

@@ -81,6 +81,8 @@ def show_window(url: str, server_done=lambda: False) -> None:
         print("Не вдалося відкрити вікно Qt — інтерфейс відкрито в браузері")
     else:
         print("Qt WebEngine не встановлено — інтерфейс відкрито в браузері")
+    from urllib.parse import urlsplit
+    wait_port(urlsplit(url).port or 80)   # браузеру потрібен уже запущений сервер
     open_window(url)
 
 
@@ -130,8 +132,9 @@ def main() -> None:
     threading.Thread(target=supervise, name="server", daemon=True).start()
     print(f"SC DMX: {url}  (Ctrl+C — вихід)")
     try:
-        if args.open and wait_port(args.port):
-            # вікно — у головному потоці; після його закриття сервер сам гасить світло й виходить
+        if args.open:
+            # вікно — одразу, з екраном завантаження (воно саме чекає на сервер);
+            # після його закриття сервер сам гасить світло й виходить
             show_window(url, done.is_set)
         while not done.wait(0.5):
             pass
