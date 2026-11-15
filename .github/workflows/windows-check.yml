@@ -74,7 +74,17 @@ jobs:
           $g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
           New-Item -ItemType Directory -Force shots | Out-Null
           $bmp.Save("$pwd\shots\4-app-screen.png")
+          Start-Sleep -Seconds 20
+          $g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+          $bmp.Save("$pwd\shots\5-app-screen-later.png")
           $app = Join-Path $env:LOCALAPPDATA 'SC-DMX'
+          '--- sc-dmx-window.log'
+          Get-Content (Join-Path $app 'sc-dmx-window.log') -Encoding UTF8 -ErrorAction SilentlyContinue
+          '--- sc-dmx.log'
+          Get-Content (Join-Path $app 'sc-dmx.log') -Encoding UTF8 -ErrorAction SilentlyContinue | Select-Object -Last 20
+          '--- процеси'
+          Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'dmxctl|sc-dmx|QtWebEngine' } |
+            ForEach-Object { "$($_.ProcessId) $($_.CommandLine)" }
           Push-Location $app
           @'
           import win32gui

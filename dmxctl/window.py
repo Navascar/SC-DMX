@@ -20,6 +20,18 @@ BG = "#0f1115"                       # фон інтерфейсу (style.css: -
 SERVER_WAIT_S = 90                   # скільки чекати на сервер програми під час запуску
 _WINDOW_GUARD = None                 # м'ютекс «вікно вже відкрите» (Windows)
 CLOSE_SIGNAL = "__SCDMX_CLOSE__"     # заголовок сторінки, яким інтерфейс просить закрити вікно
+LOG = Path(__file__).resolve().parent.parent / "sc-dmx-window.log"
+
+
+def wlog(text: str) -> None:
+    """Журнал вікна (sc-dmx-window.log поруч із програмою): завантаження сторінки, збої рушія, помилки JS."""
+    try:
+        if LOG.exists() and LOG.stat().st_size > 500_000:
+            LOG.unlink()
+        with LOG.open("a", encoding="utf-8") as f:
+            f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} [{os.getpid()}] {text}\n")
+    except OSError:
+        pass
 
 
 def available() -> bool:
@@ -101,12 +113,17 @@ def run_window(url: str, should_close: Callable[[], bool] = lambda: False) -> in
                 return False
             return super().acceptNavigationRequest(qurl, nav_type, is_main_frame)
 
+        def javaScriptConsoleMessage(self, level, message, line, source):  # noqa: N802 (Qt API)
+            wlog(f"JS {getattr(level, 'name', level)}: {message} ({source}:{line})")
+
         def createWindow(self, _type):  # noqa: N802 — window.open / target=_blank
             popup = Page(self.profile(), self)
             popup.urlChanged.connect(lambda u: (QDesktopServices.openUrl(u) if is_external(u) else None,
                                                 popup.deleteLater()))
             return popup
 
+    import PySide6
+    wlog(f"Вікно: {url} · Qt {PySide6.__version__} · {os.environ.get('QTWEBENGINE_CHROMIUM_FLAGS', '')}")
     win = QMainWindow()
     win.setWindowTitle("SC DMX")
     view = QWebEngineView(win)
@@ -118,6 +135,22 @@ def run_window(url: str, should_close: Callable[[], bool] = lambda: False) -> in
     view.page().setBackgroundColor(QColor(BG))
     view.setHtml(loading_html("Запуск…"))
     win.setCentralWidget(view)
+
+    retries = {"n": 0}
+
+    def on_load_finished(ok: bool):
+        current = view.url().toString()
+        wlog(f"Сторінка завантажена: ok={ok} url={current or '(екран завантаження)'}")
+        if not ok and boot["loaded"] and retries["n"] < 20:
+            retries["n"] += 1          # сервер ще не відповідає — пробуємо ще раз
+            QTimer.singleShot(1000, lambda: view.load(QUrl(url)))
+
+    def on_render_gone(status, code):
+        wlog(f"Процес рушія завершився: {getattr(status, 'name', status)} код {code} — перезавантаження")
+        QTimer.singleShot(500, lambda: view.load(QUrl(url)) if boot["loaded"] else view.setHtml(loading_html("Запуск…")))
+
+    view.loadFinished.connect(on_load_finished)
+    view.page().renderProcessTerminated.connect(on_render_gone)
 
     def server_ready() -> bool:
         import socket
@@ -135,9 +168,11 @@ def run_window(url: str, should_close: Callable[[], bool] = lambda: False) -> in
             return
         if server_ready():
             boot["loaded"] = True
+            wlog(f"Сервер відповідає через {time.monotonic() - boot['t0']:.1f} с, завантаження інтерфейсу")
             view.load(QUrl(url))
         elif time.monotonic() - boot["t0"] > SERVER_WAIT_S:
             boot["loaded"] = True
+            wlog("Сервер не запустився")
             view.setHtml(loading_html("Не вдалося запустити програму. Закрийте вікно й відкрийте SC DMX знову.", error=True))
         else:
             QTimer.singleShot(250, try_load)
@@ -229,7 +264,10 @@ def run_window(url: str, should_close: Callable[[], bool] = lambda: False) -> in
     timer.start(500)
 
     win.show()
-    return app.exec()
+    wlog("Вікно показано")
+    code = app.exec()
+    wlog(f"Вікно закрито, код {code}")
+    return code
 
 
 if __name__ == "__main__":  # ручна перевірка: python -m dmxctl.window http://127.0.0.1:8080/
