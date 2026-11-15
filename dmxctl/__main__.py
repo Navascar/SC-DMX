@@ -86,6 +86,23 @@ def show_window(url: str, server_done=lambda: False) -> None:
     open_window(url)
 
 
+def focus_existing(url: str) -> None:
+    """Програма вже працює: виводимо її вікно на передній план. Якщо вікна немає (програма
+    стартує або працює з --background) — чекаємо його, а потім відкриваємо одне вікно."""
+    if sys.platform == "win32":
+        from . import winshell
+        end = time.monotonic() + 15
+        while time.monotonic() < end:
+            hwnd = winshell.find_app_window()
+            if hwnd:
+                winshell.focus_window(hwnd)
+                return
+            time.sleep(0.3)
+    from urllib.parse import urlsplit
+    wait_port(urlsplit(url).port or 80)
+    show_window(url)   # друге вікно однаково не відкриється: у вікна свій захист від копій
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--open", action="store_true")
@@ -101,11 +118,17 @@ def main() -> None:
         return
 
     url = f"http://127.0.0.1:{args.port}/"
-    if port_busy(args.port):
-        # програма вже працює — просто ще одне вікно до неї
+    already = port_busy(args.port)
+    guard = None   # м'ютекс «програма вже працює» — тримаємо до виходу
+    if sys.platform == "win32" and not already:
+        from . import winshell
+        guard = winshell.single_instance(winshell.APP_MUTEX)
+        already = guard is None
+    if already:
+        # друга копія не запускається: лише показуємо вікно вже відкритої програми
         print(f"SC DMX вже запущено: {url}")
         if args.open:
-            show_window(url)
+            focus_existing(url)
         return
 
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.executable.lower().endswith("pythonw.exe") else 0

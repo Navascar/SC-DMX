@@ -18,6 +18,7 @@ ICON_SVG = Path(__file__).resolve().parent / "static" / "icon.svg"
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
 BG = "#0f1115"                       # фон інтерфейсу (style.css: --bg) — без білого спалаху
 SERVER_WAIT_S = 90                   # скільки чекати на сервер програми під час запуску
+_WINDOW_GUARD = None                 # м'ютекс «вікно вже відкрите» (Windows)
 CLOSE_SIGNAL = "__SCDMX_CLOSE__"     # заголовок сторінки, яким інтерфейс просить закрити вікно
 
 
@@ -66,8 +67,19 @@ def run_window(url: str, should_close: Callable[[], bool] = lambda: False) -> in
 
     from PySide6.QtGui import QColor
     if sys.platform == "win32":
-        # Інакше Windows вважає вікно частиною pythonw.exe і показує в панелі задач «Python»
         from . import winshell
+        # лише одне вікно програми: якщо воно вже є — показуємо його й виходимо
+        global _WINDOW_GUARD
+        _WINDOW_GUARD = winshell.single_instance(winshell.WINDOW_MUTEX)
+        if _WINDOW_GUARD is None:
+            for _ in range(50):
+                hwnd = winshell.find_app_window()
+                if hwnd:
+                    winshell.focus_window(hwnd)
+                    break
+                time.sleep(0.2)
+            return 0
+        # Інакше Windows вважає вікно частиною pythonw.exe і показує в панелі задач «Python»
         winshell.set_process_id()
     from PySide6.QtWidgets import QFileDialog, QMessageBox
 

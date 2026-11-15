@@ -88,6 +88,53 @@ jobs:
           '@ | Set-Content check.py -Encoding UTF8
           .\.venv\Scripts\python.exe check.py
           Pop-Location
+
+      - name: Друга копія не відкривається
+        shell: pwsh
+        run: |
+          $lnk = Join-Path ([Environment]::GetFolderPath('Programs')) 'SC DMX.lnk'
+          $app = Join-Path $env:LOCALAPPDATA 'SC-DMX'
+          @'
+          import ctypes, subprocess, sys, time
+          from dmxctl import winshell
+          u = ctypes.windll.user32
+          def windows():
+              out = []
+              @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+              def cb(h, _):
+                  t = ctypes.create_unicode_buffer(64); c = ctypes.create_unicode_buffer(128)
+                  u.GetWindowTextW(h, t, 64); u.GetClassNameW(h, c, 128)
+                  if t.value == "SC DMX" and "Qt" in c.value and u.IsWindowVisible(h):
+                      out.append(h)
+                  return True
+              u.EnumWindows(cb, 0)
+              return out
+          def servers():
+              r = subprocess.run(["powershell", "-NoProfile", "-Command",
+                  "(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'dmxctl.server' }).Count"],
+                  capture_output=True, text=True)
+              return r.stdout.strip()
+          print("до:", len(windows()), "вікно(а), серверів:", servers())
+          for _ in range(2):
+              subprocess.run(["cmd", "/c", "start", "", sys.argv[1]])
+              time.sleep(8)
+          w = windows()
+          print("після 2 повторних запусків:", len(w), "вікно(а), серверів:", servers())
+          ok = len(w) == 1
+          u.ShowWindow(ctypes.c_void_p(w[0]), 6)        # згорнути
+          time.sleep(1)
+          print("згорнуто:", bool(u.IsIconic(ctypes.c_void_p(w[0]))))
+          subprocess.run(["cmd", "/c", "start", "", sys.argv[1]])
+          time.sleep(8)
+          restored = not u.IsIconic(ctypes.c_void_p(w[0]))
+          print("після запуску розгорнуто:", restored, "| вікон:", len(windows()))
+          sys.exit(0 if ok and restored and len(windows()) == 1 else 1)
+          '@ | Set-Content "$app\single.py" -Encoding UTF8
+          Push-Location $app
+          .\.venv\Scripts\python.exe single.py $lnk
+          $code = $LASTEXITCODE
+          Pop-Location
+          exit $code
           Get-Content (Join-Path $app 'sc-dmx.log') -ErrorAction SilentlyContinue | Select-Object -Last 20
 
       - name: Повторне встановлення, коли SC DMX відкрито

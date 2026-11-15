@@ -145,6 +145,64 @@ def style_title_bar(hwnd: int) -> None:
     attr(34, colorref(BORDER))        # DWMWA_BORDER_COLOR
 
 
+# ------------------------------------------------------------ одна копія ---
+APP_MUTEX = "Local\\SCDMX.App"         # лаунчер із сервером — лише один
+WINDOW_MUTEX = "Local\\SCDMX.Window"   # вікно програми — лише одне
+WINDOW_TITLE = APP_NAME
+
+
+def single_instance(name: str):
+    """Іменований м'ютекс Windows: дескриптор, якщо ми перші, або None, якщо копія вже працює.
+    Дескриптор треба тримати, доки працює процес (Windows звільнить його сама)."""
+    import ctypes
+    from ctypes import wintypes
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateMutexW.restype = wintypes.HANDLE
+    k32.CreateMutexW.argtypes = (wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR)
+    handle = k32.CreateMutexW(None, False, name)
+    if ctypes.get_last_error() == 183:      # ERROR_ALREADY_EXISTS
+        k32.CloseHandle(handle)
+        return None
+    return handle
+
+
+def find_app_window() -> int | None:
+    """Відкрите вікно SC DMX (вікно Qt із заголовком «SC DMX»)."""
+    import ctypes
+    from ctypes import wintypes
+    user32 = ctypes.windll.user32
+    found: list[int] = []
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def callback(hwnd, _):
+        title = ctypes.create_unicode_buffer(64)
+        cls = ctypes.create_unicode_buffer(128)
+        user32.GetWindowTextW(hwnd, title, 64)
+        user32.GetClassNameW(hwnd, cls, 128)
+        if title.value == WINDOW_TITLE and "Qt" in cls.value and user32.IsWindowVisible(hwnd):
+            found.append(hwnd)
+            return False
+        return True
+
+    user32.EnumWindows(callback, 0)
+    return found[0] if found else None
+
+
+def focus_window(hwnd: int) -> None:
+    """Показує вікно: розгортає згорнуте й виводить на передній план."""
+    import ctypes
+    from ctypes import wintypes
+    user32 = ctypes.windll.user32
+    user32.ShowWindow.argtypes = (wintypes.HWND, ctypes.c_int)
+    user32.IsIconic.argtypes = (wintypes.HWND,)
+    user32.SetForegroundWindow.argtypes = (wintypes.HWND,)
+    user32.ShowWindow(hwnd, 9 if user32.IsIconic(hwnd) else 5)   # SW_RESTORE / SW_SHOW
+    # Windows не дає іншому процесу забрати фокус; натискання Alt знімає це обмеження
+    user32.keybd_event(0x12, 0, 0, 0)
+    user32.keybd_event(0x12, 0, 2, 0)
+    user32.SetForegroundWindow(hwnd)
+
+
 def main(argv: list[str]) -> int:
     if sys.platform != "win32":
         print("Лише для Windows")
