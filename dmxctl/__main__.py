@@ -4,7 +4,8 @@ python -m dmxctl [--open] [--port N] ...
 
 * запускає сервер в окремому процесі й перезапускає його після оновлення
   (код виходу 42), тож оновлення застосовуються без участі користувача;
-* з --open відкриває інтерфейс в окремому вікні (Edge/Chrome у режимі застосунку);
+* з --open відкриває власне вікно програми (Qt WebEngine — без Edge і без інтернету);
+  якщо Qt WebEngine не встановлено — запасний варіант через браузер;
 * якщо програма вже запущена — просто відкриває її вікно, другу копію не стартує.
 
 Тут лише стандартна бібліотека, щоб лаунчер працював навіть під час оновлення залежностей.
@@ -17,6 +18,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import threading
 import time
 import webbrowser
 
@@ -61,6 +63,27 @@ def open_window(url: str) -> None:
     webbrowser.open(url)
 
 
+def show_window(url: str, server_done=lambda: False) -> None:
+    """Власне вікно програми (Qt WebEngine) — в окремому процесі, щоб збій вікна не зупинив
+    програму. Якщо вікно не запускається, запасний варіант — браузер."""
+    from . import window
+    if window.available():
+        started = time.monotonic()
+        proc = subprocess.Popen([sys.executable, "-m", "dmxctl.window", url], cwd=APP_DIR)
+        while proc.poll() is None:
+            if server_done():          # «Вимкнути програму» — закриваємо й вікно
+                proc.terminate()
+                proc.wait()
+                return
+            time.sleep(0.3)
+        if proc.returncode == 0 or time.monotonic() - started > 10:
+            return                     # користувач закрив вікно
+        print("Не вдалося відкрити вікно Qt — інтерфейс відкрито в браузері")
+    else:
+        print("Qt WebEngine не встановлено — інтерфейс відкрито в браузері")
+    open_window(url)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--open", action="store_true")
@@ -75,41 +98,51 @@ def main() -> None:
         server_main(server_args + (["--help"] if args.help else []))
         return
 
-    url = f"http://localhost:{args.port}/"
+    url = f"http://127.0.0.1:{args.port}/"
     if port_busy(args.port):
+        # програма вже працює — просто ще одне вікно до неї
         print(f"SC DMX вже запущено: {url}")
         if args.open:
-            open_window(url)
+            show_window(url)
         return
 
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.executable.lower().endswith("pythonw.exe") else 0
-    first = True
-    while True:
-        proc = subprocess.Popen([sys.executable, "-m", "dmxctl.server", *server_args],
-                                cwd=APP_DIR, creationflags=flags)
-        if first:
-            print(f"SC DMX: {url}  (Ctrl+C — вихід)")
-            if args.open and wait_port(args.port):
-                open_window(url)
-            first = False
-        try:
+    state = {"code": 0, "proc": None}
+    done = threading.Event()
+
+    def supervise() -> None:
+        """Сервер в окремому процесі; після оновлення (код 42) — перезапуск."""
+        while True:
+            proc = subprocess.Popen([sys.executable, "-m", "dmxctl.server", *server_args],
+                                    cwd=APP_DIR, creationflags=flags)
+            state["proc"] = proc
             code = proc.wait()
-        except KeyboardInterrupt:
+            if code != RESTART_CODE:
+                state["code"] = code
+                break
+            print("Перезапуск після оновлення…")
+            for _ in range(50):  # чекаємо, поки старий процес звільнить порт
+                if not port_busy(args.port):
+                    break
+                time.sleep(0.1)
+        done.set()
+
+    threading.Thread(target=supervise, name="server", daemon=True).start()
+    print(f"SC DMX: {url}  (Ctrl+C — вихід)")
+    try:
+        if args.open and wait_port(args.port):
+            # вікно — у головному потоці; після його закриття сервер сам гасить світло й виходить
+            show_window(url, done.is_set)
+        while not done.wait(0.5):
+            pass
+    except KeyboardInterrupt:
+        proc = state["proc"]
+        if proc and proc.poll() is None:
             try:
-                code = proc.wait(timeout=5)
+                proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 proc.kill()
-                code = 0
-            break
-        if code != RESTART_CODE:
-            break
-        print("Перезапуск після оновлення…")
-        # чекаємо, поки старий процес звільнить порт
-        for _ in range(50):
-            if not port_busy(args.port):
-                break
-            time.sleep(0.1)
-    sys.exit(code if code != RESTART_CODE else 0)
+    sys.exit(state["code"])
 
 
 if __name__ == "__main__":

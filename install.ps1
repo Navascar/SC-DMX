@@ -106,7 +106,7 @@ if (-not (Test-Path $VenvPy)) {
     & $Python -m venv (Join-Path $AppDir '.venv')
     if ($LASTEXITCODE -ne 0) { Fail 'не вдалося створити віртуальне середовище' }
 }
-Step 'Встановлення залежностей'
+Step 'Встановлення залежностей (вперше — близько 250 МБ: вбудоване вікно програми)'
 & $VenvPy -m pip install --disable-pip-version-check -q --upgrade pip
 & $VenvPy -m pip install --disable-pip-version-check -r (Join-Path $AppDir 'requirements.txt')
 if ($LASTEXITCODE -ne 0) { Fail 'не вдалося встановити залежності (див. текст вище)' }

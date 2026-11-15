@@ -26,6 +26,7 @@ UPDATE = web.AppKey("update", dict)
 STOP = web.AppKey("stop", asyncio.Event)
 EXIT = web.AppKey("exit", dict)
 UPDATE_CHECK_INTERVAL = 3600
+OFFLINE_RETRY_S = 600
 # Програма працює, лише поки відкрите її вікно. Після закриття останнього вікна —
 # коротка пауза (перезавантаження сторінки, оновлення), потім світло гасне і програма виходить.
 CLOSE_GRACE_S = 6
@@ -215,9 +216,17 @@ async def check_updates(app: web.Application) -> None:
     try:
         info = await asyncio.get_running_loop().run_in_executor(None, updater.check)
         await set_update(app, status="idle", blocked=updater.can_self_update(), **info)
-    except Exception as exc:  # noqa: BLE001 — немає інтернету тощо
+    except (OSError, TimeoutError) as exc:  # URLError — підклас OSError: немає інтернету
+        log.info("Немає підключення до інтернету — перевірку оновлень відкладено (%s)", exc)
+        await set_update(app, status="idle", offline=True,
+                         error="Немає підключення до інтернету. Програма працює як завжди, "
+                               "оновлення перевіряться, щойно зʼявиться мережа.")
+        return
+    except Exception as exc:  # noqa: BLE001
         log.warning("Не вдалося перевірити оновлення: %s", exc)
         await set_update(app, status="idle", error=f"Не вдалося перевірити оновлення: {exc}")
+        return
+    app[UPDATE]["offline"] = False
 
 
 async def apply_update(app: web.Application) -> None:
@@ -246,7 +255,8 @@ async def update_loop(app: web.Application) -> None:
     await asyncio.sleep(3)
     while True:
         await check_updates(app)
-        await asyncio.sleep(UPDATE_CHECK_INTERVAL)
+        # без інтернету пробуємо частіше, щоб оновлення знайшлося, щойно зʼявиться мережа
+        await asyncio.sleep(OFFLINE_RETRY_S if app[UPDATE].get("offline") else UPDATE_CHECK_INTERVAL)
 
 
 def request_stop(app: web.Application, code: int) -> None:
