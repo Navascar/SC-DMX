@@ -5,6 +5,7 @@ name: Windows check
 on:
   push:
     branches-ignore: [main]
+    paths-ignore: ['.claude/**', 'CLAUDE.md', '.mcp.json', '**/*.md']
   workflow_dispatch:
 
 permissions:
