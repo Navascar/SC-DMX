@@ -12,7 +12,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from .effects import EFFECTS, effect_color, hex_to_rgb
-from .fixtures import (COLOR_KEYS, DEFAULT_PROFILES, PRESET_COUNT, Fixture, find_overlaps,
+from .fixtures import (COLOR_KEYS, DEFAULT_PROFILES, LEGACY_PROFILES, PRESET_COUNT, PROGRAMS, Fixture, find_overlaps,
                        has_presets, preset_level, render_fixture, segment_count, validate_fixture, validate_profile)
 from .outputs import DMX_CHANNELS, OUTPUT_TYPES, create_output
 
@@ -41,6 +41,20 @@ DEFAULT_STATIC_COLORS = [
     {"name": "Холодний білий", "hex": "#d2e6ff", "hex_w": "#002878", "w": 255},
 ]
 STATE_KEYS = COLOR_KEYS + ("dimmer",)
+
+
+_PROGRAM_COLORS = {"Червоний": (255, 0, 0), "Зелений": (0, 255, 0), "Синій": (0, 0, 255),
+                   "Жовтий": (255, 200, 0), "Фіолетовий": (170, 0, 255), "Блакитний": (0, 220, 255),
+                   "Білий": (255, 255, 255)}
+
+
+def _program_rgb(n: int) -> tuple[int, int, int]:
+    """Приблизний колір програми для превʼю на плитці приладу."""
+    name, group, _, _ = PROGRAMS[n - 1]
+    for key, rgb in _PROGRAM_COLORS.items():
+        if name.startswith(key):
+            return rgb
+    return (255, 120, 255) if group == "sound" else (200, 200, 200)
 
 
 def _seg_rgbs(vals: dict, n: int) -> list[list[int]]:
@@ -91,6 +105,10 @@ class Engine:
         cfg = json.loads(self.config_path.read_text("utf-8"))
         self.profiles.update(cfg.get("profiles", {}))
         self.fixtures = [Fixture.from_dict(f) for f in cfg.get("fixtures", [])]
+        for f in self.fixtures:  # міграція зі старих версій
+            f.profile = LEGACY_PROFILES.get(f.profile, f.profile)
+            if f.preset is not None and not 1 <= f.preset <= PRESET_COUNT:
+                f.preset = None
         self.scenes = cfg.get("scenes", {})
         if "static_colors" in cfg:
             self.static_colors = cfg["static_colors"]
@@ -170,6 +188,8 @@ class Engine:
             "static_colors": self.static_colors,
             "effects": EFFECTS,
             "preset_count": PRESET_COUNT,
+            "programs": [{"n": i + 1, "name": name, "group": grp, "range": [lo, hi]}
+                         for i, (name, grp, lo, hi) in enumerate(PROGRAMS)],
             "preset_fixtures": [f.id for f in self.fixtures if has_presets(f)],
             "undo": self._undo[-1][0] if self._undo else None,
             "redo": self._redo[-1][0] if self._redo else None,
@@ -261,14 +281,16 @@ class Engine:
                     setattr(f, key, v)
 
     def cmd_preset(self, m):
-        """Вбудований пресет приладу: n = 1..25, або 0/None — вимкнути.
+        """Вбудована програма приладу: n = 1..PRESET_COUNT, 0/None — вимкнути;
+        speed (0..255) — швидкість програми. Без "n" змінюється лише швидкість.
 
-        Вибрані сегменти означають їхній прилад; без вибору — усі прилади.
+        Вибрані сегменти означають їхній прилад; без вибору — усі бари.
         """
-        n = m.get("n")
-        n = int(n) if n else None
+        set_n = "n" in m
+        n = int(m["n"]) if m.get("n") else None
         if n is not None:
             preset_level(n)  # перевірка діапазону
+        speed = _byte(m["speed"]) if "speed" in m else None
         whole, segs = self._resolve(m.get("ids"))
         targets = {f.id: f for f in whole + [f for f, _ in segs] if has_presets(f)}
         if not targets and not m.get("ids"):
@@ -277,8 +299,11 @@ class Engine:
             raise ValueError("Пресети доступні лише для LED-барів — виберіть бар")
         self._fade = None
         for f in targets.values():
-            f.preset = n
-        if n is not None:
+            if set_n:
+                f.preset = n
+            if speed is not None:
+                f.speed = speed
+        if set_n and n is not None:
             self._drop_from_effect(list(targets))
 
     def cmd_clear(self, m):
@@ -356,7 +381,7 @@ class Engine:
 
     def cmd_add_fixture(self, m):
         count = max(1, min(64, int(m.get("count", 1))))
-        profile = m["profile"]
+        profile = LEGACY_PROFILES.get(m["profile"], m["profile"])
         if profile not in self.profiles:
             raise ValueError(f"невідомий профіль «{profile}»")
         width = len(self.profiles[profile])
@@ -374,7 +399,10 @@ class Engine:
 
     def cmd_update_fixture(self, m):
         fx = self._fx(m["id"])
-        trial = Fixture.from_dict({**fx.to_dict(), **{k: m[k] for k in ("name", "address", "profile") if k in m}})
+        changes = {k: m[k] for k in ("name", "address", "profile") if k in m}
+        if "profile" in changes:
+            changes["profile"] = LEGACY_PROFILES.get(changes["profile"], changes["profile"])
+        trial = Fixture.from_dict({**fx.to_dict(), **changes})
         trial.address = int(trial.address)
         validate_fixture(trial, self.profiles)
         fx.name, fx.address, fx.profile = trial.name, trial.address, trial.profile
@@ -455,7 +483,8 @@ class Engine:
         if not name:
             raise ValueError("вкажіть назву сцени")
         self.scenes[name] = {
-            "fixtures": {f.id: {**{k: getattr(f, k) for k in STATE_KEYS}, "segs": f.segs, "preset": f.preset}
+            "fixtures": {f.id: {**{k: getattr(f, k) for k in STATE_KEYS}, "segs": f.segs, "preset": f.preset,
+                              "speed": f.speed}
                          for f in self.fixtures},
             "effect": dict(self.effect) if m.get("with_effect") else None,
         }
@@ -502,6 +531,7 @@ class Engine:
             if k >= 1.0:
                 fx.segs = [list(s) if s else None for s in end["segs"]] if end.get("segs") else None
                 fx.preset = end.get("preset")
+                fx.speed = end.get("speed", fx.speed)
             elif start.get("segs") or end.get("segs"):
                 n = self._segments(fx)
                 s0, s1 = _seg_rgbs(start, n), _seg_rgbs(end, n)
@@ -540,8 +570,17 @@ class Engine:
             channels = self.profiles.get(fx.profile)
             if not channels:
                 continue
+            if fx.preset and has_presets(fx) and "macro" in channels:
+                # профіль з каналом програми (A001 / H001): програма — у свій канал
+                n_seg = segment_count(channels)
+                render_fixture(uni, fx, channels, [fx.seg_color(k) for k in range(n_seg)], master)
+                rgb = _program_rgb(fx.preset)
+                lvl = (fx.dimmer / 255.0 if "dim" in channels else 1.0) * master
+                live[fx.id] = [[round(c * lvl) for c in rgb] + [0]] * n_seg
+                continue
             if fx.preset and has_presets(fx):
-                # пресет: червоний на максимумі, яскравість = рівень пресету; майстер не зсуває рівень
+                # профіль без каналу програми (бар у режимі A001, а в програмі — RGB-профіль):
+                # червоний на максимумі, яскравість = значення програми; майстер не зсуває рівень
                 lvl = preset_level(fx.preset)
                 red = {"r": 255.0, "g": 0.0, "b": 0.0, "w": 0.0, "a": 0.0, "uv": 0.0}
                 pf = replace(fx, dimmer=lvl, segs=None, w=0, a=0, uv=0)

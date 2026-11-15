@@ -159,7 +159,7 @@ def test_static_color_stops_effect_and_uses_white_channel(tmp_path):
     assert Engine(tmp_path / "cfg.json").static_colors[-1] == {"name": "Мій", "hex": "#123456"}
 
 
-WASH24 = "Free Color WASH 243 · 24 кан. (8 сегментів)"
+WASH24 = "Free Color WASH 243 · 24 кан. P001 (8 сегментів)"
 
 
 def test_wash243_profiles():
@@ -276,10 +276,11 @@ def test_fixed_roles_and_raw_channel_test(tmp_path):
 
 
 def test_presets_switch_brightness_levels(tmp_path):
-    from dmxctl.fixtures import preset_level
-    assert [preset_level(1), preset_level(2), preset_level(25)] == [15, 25, 255]
+    from dmxctl.fixtures import PRESET_COUNT, PROGRAMS, preset_level
+    assert PRESET_COUNT == 23
+    assert [preset_level(1), preset_level(8), preset_level(23)] == [11, 88, 251]  # червоний, ефект 1, звук
     eng = Engine(tmp_path / "cfg.json")
-    eng.handle({"cmd": "add_fixture", "profile": "Free Color WASH 243 · 24 кан. (8 сегментів)", "address": 1})
+    eng.handle({"cmd": "add_fixture", "profile": WASH24, "address": 1})
     eng.handle({"cmd": "add_fixture", "profile": "Dim+RGB (4 кан.)", "address": 25})
     bar, par = eng.fixtures
     eng.handle({"cmd": "update_fixture", "id": par.id, "presets": True})  # пресети вручну для приладу з диммером
@@ -287,8 +288,8 @@ def test_presets_switch_brightness_levels(tmp_path):
     eng.handle({"cmd": "set_effect", "type": "rainbow", "ids": [bar.id, par.id]})
     eng.handle({"cmd": "preset", "ids": [bar.id, par.id], "n": 3})
     f = eng.render(0)
-    assert list(f[0:6]) == [35, 0, 0, 35, 0, 0]               # без диммера: червоний = рівень
-    assert list(f[24:28]) == [35, 255, 0, 0]                  # з диммером: dim = рівень, червоний 255
+    assert list(f[0:6]) == [33, 0, 0, 33, 0, 0]               # без каналу програми: червоний = значення програми
+    assert list(f[24:28]) == [33, 255, 0, 0]                  # з диммером: dim = значення, червоний 255
     assert eng.effect["type"] == "none"
     eng.handle({"cmd": "blackout", "on": True})
     assert not any(eng.render(0))
@@ -303,7 +304,38 @@ def test_presets_switch_brightness_levels(tmp_path):
     eng.handle({"cmd": "recall_scene", "name": "p", "fade": 0})
     assert par.preset == 3
     with pytest.raises(ValueError):
-        eng.handle({"cmd": "preset", "ids": [par.id], "n": 26})
+        eng.handle({"cmd": "preset", "ids": [par.id], "n": 24})
+
+
+def test_wash243_program_modes(tmp_path):
+    """A001: CH1 — програма, CH2 — швидкість; H001: CH3 — програма, CH4 — швидкість, CH8 = 0."""
+    eng = Engine(tmp_path / "cfg.json")
+    eng.handle({"cmd": "add_fixture", "profile": "Free Color WASH 243 · 2 кан. A001 (програми)", "address": 1})
+    eng.handle({"cmd": "add_fixture", "profile": "Free Color WASH 243 · 8 кан. H001 (Dim, строб, програми, RGB)", "address": 3})
+    a, h = eng.fixtures
+    assert eng.state()["preset_fixtures"] == [a.id, h.id]
+    assert list(eng.render(0)[0:2]) == [0, 128]               # без програми: 000 = «без ефекту»
+    eng.handle({"cmd": "preset", "ids": [a.id, h.id], "n": 9, "speed": 200})   # «Ефект 2» = 094–104
+    f = eng.render(0)
+    assert list(f[0:2]) == [99, 200]
+    assert list(f[2:10]) == [255, 0, 99, 200, 0, 0, 0, 0]
+    # лише швидкість — програма не змінюється
+    eng.handle({"cmd": "preset", "ids": [a.id], "speed": 10})
+    assert a.preset == 9 and eng.render(0)[1] == 10
+    # H001 без програми — звичайний RGB з диммером
+    eng.handle({"cmd": "static_color", "hex": "#0000ff", "ids": [h.id]})
+    assert list(eng.render(0)[2:10]) == [255, 0, 0, 200, 0, 0, 255, 0]  # швидкість лишається
+    eng.handle({"cmd": "blackout", "on": True})
+    assert not any(eng.render(0)[0:1]) and eng.render(0)[2] == 0
+
+
+def test_legacy_profile_name_migrates(tmp_path):
+    import json
+    cfg = tmp_path / "cfg.json"
+    cfg.write_text(json.dumps({"fixtures": [{"id": "x", "name": "Бар", "address": 1,
+                                             "profile": "Free Color WASH 243 · 24 кан. (8 сегментів)", "preset": 25}]}))
+    eng = Engine(cfg)
+    assert eng.fixtures[0].profile == WASH24 and eng.fixtures[0].preset is None
 
 
 def test_undo_redo(tmp_path, monkeypatch):
@@ -338,7 +370,7 @@ def test_undo_redo(tmp_path, monkeypatch):
 
 def test_presets_only_for_bars(tmp_path):
     eng = Engine(tmp_path / "cfg.json")
-    eng.handle({"cmd": "add_fixture", "profile": "Free Color WASH 243 · 24 кан. (8 сегментів)", "address": 1})
+    eng.handle({"cmd": "add_fixture", "profile": WASH24, "address": 1})
     eng.handle({"cmd": "add_fixture", "profile": "Dim+RGB (4 кан.)", "address": 25})
     bar, par = eng.fixtures
     assert eng.state()["preset_fixtures"] == [bar.id]

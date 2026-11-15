@@ -209,7 +209,7 @@ function renderFixtures() {
       lamp,
       el("div", { className: "name", textContent: f.name }),
       el("div", { className: "addr", textContent: `DMX ${f.address}–${f.address + S.profiles[f.profile].length - 1}` }),
-      el("div", { className: "fx-badge", textContent: f.preset ? `● Пресет ${f.preset}`
+      el("div", { className: "fx-badge", textContent: f.preset ? `● ${programName(f.preset)}`
         : effIds.has(f.id) ? "● " + S.effects[S.effect.type] : "" }));
     tile.dataset.id = f.id;
     tile.onclick = (e) => pick(f.id, e.shiftKey);
@@ -516,15 +516,40 @@ function openPresets() {
   if (!dlg.open) dlg.show();
 }
 
+const PROGRAM_GROUPS = [["color", "Кольори"], ["effect", "Ефекти"], ["gradient", "Градієнти"], ["sound", "Звук"]];
+const PROGRAM_SWATCH = { "Червоний": "#ff2020", "Зелений": "#20e040", "Синій": "#2050ff", "Жовтий": "#ffc800",
+                         "Фіолетовий": "#a020ff", "Блакитний": "#00d0ff", "Білий": "#ffffff", "Круговий": "conic-gradient(#f22,#fc0,#2e4,#25f,#a2f,#f22)" };
+const programName = (n) => (S.programs || [])[n - 1]?.name || `Пресет ${n}`;
+
+function programSwatch(p) {
+  const key = Object.keys(PROGRAM_SWATCH).find((k) => p.name.startsWith(k));
+  if (!key) return null;
+  const c = PROGRAM_SWATCH[key];
+  return p.group === "gradient" && key !== "Круговий" ? `linear-gradient(90deg, #000, ${c})` : c;
+}
+
 function buildPresets() {
   const grid = $("#presetGrid");
-  if (grid.childElementCount === S.preset_count) return;
+  if (grid.dataset.built === String(S.preset_count)) return;
+  grid.dataset.built = S.preset_count;
   grid.replaceChildren();
-  for (let n = 1; n <= S.preset_count; n++) {
-    const lvl = Math.min(255, n * 10 + 5);
-    const b = el("button", { type: "button", textContent: n, title: `Пресет ${n} · Яскравість ${lvl}` });
-    b.onclick = () => send({ cmd: "preset", ids: presetTargets().map((f) => f.id), n });
-    grid.append(b);
+  for (const [group, title] of PROGRAM_GROUPS) {
+    const progs = (S.programs || []).filter((p) => p.group === group);
+    if (!progs.length) continue;
+    grid.append(el("div", { className: "prog-title", textContent: title }));
+    const box = el("div", { className: "prog-row prog-" + group });
+    for (const p of progs) {
+      const label = group === "effect" ? p.name.replace("Ефект ", "") : group === "gradient" ? p.name.replace(" градієнт", "") : p.name;
+      const b = el("button", { type: "button", title: `${p.name} · DMX ${p.range[0]}–${p.range[1]}` });
+      const sw = programSwatch(p);
+      if (sw) b.append(el("i", { className: "sw" }));
+      if (sw) b.lastChild.style.background = sw;
+      b.append(el("span", { textContent: label }));
+      b.dataset.n = p.n;
+      b.onclick = () => send({ cmd: "preset", ids: presetTargets().map((f) => f.id), n: p.n });
+      box.append(b);
+    }
+    grid.append(box);
   }
 }
 
@@ -535,18 +560,22 @@ function renderPresets() {
   const btn = $("#openPresets");
   btn.hidden = !targets.length;
   btn.classList.toggle("on", targets.some((f) => f.preset));
-  btn.textContent = targets.length === 1 && targets[0].preset ? `▦ Пресет ${targets[0].preset}` : "▦ Пресети";
+  btn.textContent = targets.length === 1 && targets[0].preset ? `▦ ${programName(targets[0].preset)}` : "▦ Пресети";
   const dlg = $("#presetDlg");
   if (!targets.length) { if (dlg.open) dlg.close(); return; }
   $("#presetTitle").textContent = "Пресети · " + (targets.length === 1 ? targets[0].name : `${targets.length} бари`);
   const used = new Map();
   for (const f of targets) if (f.preset) used.set(f.preset, (used.get(f.preset) || 0) + 1);
-  [...$("#presetGrid").children].forEach((b, i) => {
-    const c = used.get(i + 1) || 0;
+  $("#presetGrid").querySelectorAll("button[data-n]").forEach((b) => {
+    const c = used.get(+b.dataset.n) || 0;
     b.classList.toggle("on", c > 0 && c === targets.length);
     b.classList.toggle("part", c > 0 && c < targets.length);
   });
   $("#presetOff").disabled = !targets.some((f) => f.preset);
+  if (activeSlider !== "presetSpeed") {
+    $("#presetSpeed").value = targets[0].speed ?? 128;
+    $("#presetSpeedVal").textContent = Math.round(($("#presetSpeed").value / 255) * 100) + "%";
+  }
 }
 
 // ---------------------------------------------------- статичні кольори ---
@@ -792,7 +821,8 @@ function updatePropInfo() {
 // ------------------------------------------------------------ тест каналів ---
 const TEST_ROLES = [
   ["r", "Червоний"], ["g", "Зелений"], ["b", "Синій"], ["w", "Білий"], ["a", "Бурштин"], ["uv", "УФ"],
-  ["dim", "Диммер"], ["strobe", "Строб"], ["zero", "Не використ. (0)"], ["full", "Завжди 255"],
+  ["dim", "Диммер"], ["strobe", "Строб"], ["macro", "Програма (пресет)"], ["speed", "Швидкість програми"],
+  ["zero", "Не використ. (0)"], ["full", "Завжди 255"],
   ["fixed", "Фіксоване значення"],
 ];
 const tested = new Set();   // адреси, якими зараз керує тест
@@ -1399,6 +1429,13 @@ function init() {
   bindStatic();
   $("#presetOff").onclick = () => send({ cmd: "preset", ids: presetTargets().map((f) => f.id), n: 0 });
   $("#openPresets").onclick = openPresets;
+  const sp = $("#presetSpeed");
+  sp.addEventListener("pointerdown", () => (activeSlider = "presetSpeed"));
+  sp.addEventListener("pointerup", () => (activeSlider = null));
+  sp.addEventListener("input", () => {
+    $("#presetSpeedVal").textContent = Math.round((sp.value / 255) * 100) + "%";
+    sendThrottled("presetSpeed", { cmd: "preset", ids: presetTargets().map((f) => f.id), speed: +sp.value });
+  });
   $("#presetClose").onclick = () => $("#presetDlg").close();
   bindDrag($("#presetDlg"), $("#presetDlg .drag-handle"));
   bindEditableOutputs();

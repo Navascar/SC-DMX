@@ -8,20 +8,25 @@ COLOR_KEYS = ("r", "g", "b", "w", "a", "uv")
 # Ролі каналів:
 #   r g b w a uv — колірні канали;  dim — загальний диммер приладу;
 #   strobe — апаратний строб;  zero — завжди 0;  full — завжди 255;
-#   =N — завжди значення N (0..255), напр. канал режиму, який має стояти на «ручному RGB».
-ROLES = set(COLOR_KEYS) | {"dim", "strobe", "zero", "full"}
+#   =N — завжди значення N (0..255), напр. канал режиму, який має стояти на «ручному RGB»;
+#   macro — вибір вбудованої програми (пресету) приладу; speed — швидкість програми.
+ROLES = set(COLOR_KEYS) | {"dim", "strobe", "zero", "full", "macro", "speed"}
 
 # Якщо колірна роль повторюється (r g b r g b ...), прилад має кілька сегментів:
 # k-те входження ролі належить сегменту k. Так описуються LED-бари з
 # незалежними секціями, наприклад Free Color WASH 243 у режимах 6/12/24 канали.
 WASH243 = "Free Color WASH 243"
 
+# Режими WASH 243 — за інструкцією виробника (код режиму показує дисплей бару).
 DEFAULT_PROFILES: dict[str, list[str]] = {
-    f"{WASH243} · 24 кан. (8 сегментів)": ["r", "g", "b"] * 8,
+    f"{WASH243} · 24 кан. P001 (8 сегментів)": ["r", "g", "b"] * 8,
     f"{WASH243} · 12 кан. L001 (4 сегменти)": ["r", "g", "b"] * 4,
+    f"{WASH243} · 8 кан. H001 (Dim, строб, програми, RGB)":
+        ["dim", "strobe", "macro", "speed", "r", "g", "b", "zero"],  # CH8 = 0, інакше CH5–7 не працюють
     f"{WASH243} · 6 кан. E001 (2 сегменти)": ["r", "g", "b"] * 2,
     f"{WASH243} · 4 кан. d001 (Dim+RGB)": ["dim", "r", "g", "b"],
     f"{WASH243} · 3 кан. C001 (RGB)": ["r", "g", "b"],
+    f"{WASH243} · 2 кан. A001 (програми)": ["macro", "speed"],
     "RGB (3 кан.)": ["r", "g", "b"],
     "RGBW (4 кан.)": ["r", "g", "b", "w"],
     "Dim+RGB (4 кан.)": ["dim", "r", "g", "b"],
@@ -30,6 +35,11 @@ DEFAULT_PROFILES: dict[str, list[str]] = {
     "Dim+RGBW+Strobe (6 кан.)": ["dim", "r", "g", "b", "w", "strobe"],
     "RGBWA+UV (6 кан.)": ["r", "g", "b", "w", "a", "uv"],
     "Dim+RGBWA+UV+Strobe (8 кан.)": ["dim", "r", "g", "b", "w", "a", "uv", "strobe"],
+}
+
+# Старі назви профілів (до версії 1.9) → нові
+LEGACY_PROFILES = {
+    f"{WASH243} · 24 кан. (8 сегментів)": f"{WASH243} · 24 кан. P001 (8 сегментів)",
 }
 
 
@@ -50,10 +60,9 @@ class Fixture:
     # Кольори окремих сегментів: список [r, g, b] або None (= колір приладу).
     # None для всього поля — прилад світить одним кольором.
     segs: list | None = None
-    # Вбудований пресет приладу (1..PRESET_COUNT) або None. Деякі LED-бари вмикають
-    # свої програми, коли червоний на максимумі, а програму вибирає рівень яскравості
-    # (новий пресет кожні 10 DMX-значень) — пресет N так і відтворюється.
+    # Вбудована програма (пресет) приладу: номер у PROGRAMS (1..N) або None
     preset: int | None = None
+    speed: int = 128             # швидкість програми, 0..255
     # Чи має прилад вбудовані пресети: None — визначити автоматично за профілем
     presets: bool | None = None
 
@@ -82,15 +91,27 @@ class Fixture:
         self.segs = segs[:count]
 
 
-PRESET_COUNT = 25
-PRESET_STEP = 10
+# Вбудовані програми WASH 243 (канал CH1 у режимі A001, CH3 у режимі H001):
+# (назва, група, початок DMX-діапазону, кінець). Значення 000–005 — «без ефекту».
+PROGRAMS: list[tuple[str, str, int, int]] = [
+    ("Червоний", "color", 6, 16), ("Зелений", "color", 17, 27), ("Синій", "color", 28, 38),
+    ("Жовтий", "color", 39, 49), ("Фіолетовий", "color", 50, 60), ("Блакитний", "color", 61, 71),
+    ("Білий", "color", 72, 82),
+    *[(f"Ефект {i}", "effect", 83 + 11 * (i - 1), 93 + 11 * (i - 1)) for i in range(1, 10)],
+    ("Червоний градієнт", "gradient", 182, 192), ("Зелений градієнт", "gradient", 193, 203),
+    ("Синій градієнт", "gradient", 204, 214), ("Фіолетовий градієнт", "gradient", 215, 225),
+    ("Жовтий градієнт", "gradient", 226, 236), ("Круговий градієнт", "gradient", 237, 247),
+    ("Від звуку", "sound", 248, 255),
+]
+PRESET_COUNT = len(PROGRAMS)
 
 
 def preset_level(n: int) -> int:
-    """Рівень яскравості для пресету n: середина n-го десятка (15, 25, … 255)."""
+    """DMX-значення програми n (1..PRESET_COUNT) — середина її діапазону."""
     if not 1 <= n <= PRESET_COUNT:
         raise ValueError(f"пресет має бути 1..{PRESET_COUNT}")
-    return min(255, n * PRESET_STEP + PRESET_STEP // 2)
+    _, _, lo, hi = PROGRAMS[n - 1]
+    return (lo + hi) // 2
 
 
 def has_presets(fx: Fixture) -> bool:
@@ -160,6 +181,11 @@ def render_fixture(universe: bytearray, fx: Fixture, channels: list[str],
             v = 255.0 * level
         elif role == "strobe":
             v = fx.strobe
+        elif role == "macro":
+            # 000–005 — без програми; програма гасне разом з блекаутом / майстром 0
+            v = preset_level(fx.preset) if fx.preset and 1 <= fx.preset <= PRESET_COUNT and master > 0 else 0
+        elif role == "speed":
+            v = fx.speed
         elif role == "full":
             v = 255
         elif role.startswith("="):
