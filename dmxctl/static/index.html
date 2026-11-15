@@ -19,8 +19,9 @@
     <output id="masterVal">100%</output>
   </div>
   <button id="updateBtn" class="btn update-btn" hidden></button>
-  <button id="blackout" class="btn danger">BLACKOUT</button>
-  <button id="openSettings" class="btn ghost" title="Налаштування">⚙ Налаштування</button>
+  <button id="clearColors" class="btn clear-btn" title="Очистити кольори вибраних приладів (або всіх, якщо нічого не вибрано) — Delete / 0"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M20 20H9L4 15a2 2 0 0 1 0-2.8L13.2 3a2 2 0 0 1 2.8 0l4.9 4.9a2 2 0 0 1 0 2.8L12 19.6M8 10.5l6.5 6.5"/></svg><span id="clearLabel">Очистити все</span></button>
+  <button id="blackout" class="btn danger icon-btn" title="Blackout — вимкнути все світло (B)" aria-label="Blackout"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3zM3 3l18 18"/></svg></button>
+  <button id="openSettings" class="btn ghost icon-btn" title="Налаштування" aria-label="Налаштування"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.3 2.6a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1c.5.4 1.1.7 1.7 1l.3 2.6h4l.3-2.6c.6-.3 1.2-.6 1.7-1l2.5 1 2-3.5zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"/></svg></button>
 </header>
 
 <div id="offline" class="offline" hidden>
@@ -28,7 +29,7 @@
 </div>
 
 <main class="layout">
-  <section class="panel fixtures-panel">
+  <section class="panel fixtures-panel" data-zone="fixtures">
     <div class="panel-head">
       <h2>Прилади</h2>
       <div class="actions">
@@ -42,11 +43,10 @@
     <p class="hint">Клік — вибір одного приладу. <b>Shift + клік</b> — додати до вибору ще прилади. У приладів із сегментами клік по сегменту вибирає окремий сегмент. Подвійний клік — властивості приладу, правий клік — меню. Delete / 0 — очистити кольори.</p>
   </section>
 
-  <section class="panel color-panel">
+  <section class="panel color-panel" data-zone="color">
     <div class="panel-head">
       <h2>Колір</h2>
       <span id="selInfo" class="muted grow-text">нічого не вибрано</span>
-      <button class="btn small" id="clearColors" title="Очистити кольори (Delete або 0)">⌫ Очистити все</button>
     </div>
     <div class="picker-row">
       <canvas id="wheel" width="220" height="220" aria-label="Колірне коло"></canvas>
@@ -55,24 +55,25 @@
     <div class="sliders" id="sliders"></div>
   </section>
 
-  <section class="panel side-panel">
+  <section class="panel side-panel" data-zone="side">
+    <div data-block="static">
     <div class="panel-head">
       <h2>Статичні кольори</h2>
       <span id="staticTarget" class="muted">для всіх приладів</span>
     </div>
     <div id="staticGrid" class="static-grid"></div>
     <div class="row static-actions">
-      <button class="btn small" id="staticClear" title="Вимкнути кольори вибраних (або всіх) приладів — Delete / 0">⌫ Очистити</button>
       <button class="btn small" id="staticAdd" title="Зберегти колір першого вибраного приладу">＋ Зберегти поточний</button>
       <button class="btn small" id="staticEdit">Редагувати</button>
       <button class="btn small" id="staticReset" hidden>Скинути до стандартних</button>
     </div>
     <p class="hint">Клік заливає кольором вибрані прилади (або всі, якщо нічого не вибрано) і зупиняє на них ефект.</p>
-
+    </div>
+    <div data-block="effects">
     <div class="panel-head"><h2>Ефекти</h2><span id="effectState" class="muted"></span></div>
     <div class="form">
       <label>Ефект <select id="effType"></select></label>
-      <label>Швидкість <input id="effSpeed" type="range" min="0" max="100" value="40"><output id="effSpeedVal"></output></label>
+      <label>Швидкість <input id="effSpeed" type="range" min="1" max="100" value="40"><output id="effSpeedVal" class="hz-hint"></output></label>
       <label>Розкид фази <input id="effSpread" type="range" min="0" max="100" value="100"><output id="effSpreadVal"></output></label>
       <div class="palette-row">
         <span>Палітра</span>
@@ -87,6 +88,8 @@
       </div>
     </div>
 
+    </div>
+    <div data-block="scenes">
     <div class="panel-head"><h2>Сцени</h2></div>
     <div class="form">
       <div class="row">
@@ -97,9 +100,10 @@
       <label>Час переходу, с <input id="sceneFade" type="number" min="0" max="60" step="0.5" value="1"></label>
       <ul id="sceneList" class="scene-list"></ul>
     </div>
+    </div>
   </section>
 
-  <section class="panel monitor-panel">
+  <section class="panel monitor-panel" data-zone="monitor">
     <details>
       <summary>DMX-монітор (512 каналів) <span id="frameCounter" class="muted"></span></summary>
       <div id="monitor" class="monitor"></div>
@@ -170,7 +174,6 @@
     <div class="row" style="margin-top:12px">
       <button class="btn primary" type="button" data-open-add>＋ Додати прилад</button>
     </div>
-  </div>
   </div>
 
   <div id="tabProfiles" class="tab">

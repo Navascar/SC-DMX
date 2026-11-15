@@ -51,7 +51,7 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
   grid-template-columns: minmax(240px, 1fr) minmax(320px, 1.3fr) minmax(280px, 1fr); }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; min-width: 0; }
 .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
-.side-panel .panel-head:not(:first-child) { margin-top: 20px; }
+.side-panel [data-block]:not(:first-child) > .panel-head:first-child { margin-top: 20px; }
 .monitor-panel { grid-column: 1 / -1; }
 .actions { display: flex; gap: 6px; }
 
@@ -206,3 +206,14 @@ dialog::backdrop { background: #000a; }
 .ctx-menu .chips button:hover { outline: 2px solid #fff; }
 .btn:disabled { opacity: .45; cursor: not-allowed; }
 .ctx-menu .item:hover .key, .ctx-menu .item:focus .key { color: #ffffffb0; }
+
+/* текст у вікні не виділяється (як у звичайній програмі); у полях введення — виділяється */
+body { -webkit-user-select: none; user-select: none; }
+input, textarea, .notes, [contenteditable] { -webkit-user-select: text; user-select: text; }
+.icon-btn { display: inline-grid; place-items: center; width: 40px; height: 36px; padding: 0; }
+.icon-btn svg { display: block; }
+.clear-btn { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 16px; font-weight: 700;
+  background: rgba(245,165,36,.14); border-color: var(--warn); color: var(--warn); }
+.clear-btn:hover { background: var(--warn); color: #241600; border-color: var(--warn); }
+.hz-hint { cursor: help; text-decoration: underline dotted #ffffff40; text-underline-offset: 3px; }
+@media (max-width: 720px) { .clear-btn span { display: none; } .clear-btn { padding: 0 10px; } }

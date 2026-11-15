@@ -299,7 +299,7 @@ function syncSliders() {
   const desc = selDescription(items);
   $("#selInfo").textContent = desc ? `вибрано ${desc}` : "нічого не вибрано";
   $("#staticTarget").textContent = desc ? `для вибраних (${desc})` : "для всіх приладів";
-  $("#clearColors").textContent = desc ? "⌫ Очистити вибрані" : "⌫ Очистити все";
+  $("#clearLabel").textContent = desc ? "Очистити вибрані" : "Очистити все";
   // показувати лише ті канали, що є у вибраних приладів (або всі, якщо не вибрано)
   const roles = new Set();
   for (const f of sel.length ? sel : S.fixtures) for (const r of S.profiles[f.profile] || []) roles.add(r);
@@ -440,6 +440,7 @@ function renderStatic() {
   $("#staticReset").hidden = !staticEditing;
   grid.replaceChildren(...S.static_colors.map((c, index) => {
     const b = el("button", { className: "static-btn" + (c.w ? " w" : ""), title: c.name, textContent: c.name });
+    b.dataset.index = index;
     b.style.background = c.hex;
     if (c.w) b.style.background = `linear-gradient(135deg, ${c.hex} 60%, #fff)`;
     // темний текст на світлих кольорах
@@ -463,7 +464,6 @@ function clearColors() {
 
 function bindStatic() {
   $("#clearColors").onclick = clearColors;
-  $("#staticClear").onclick = clearColors;
   $("#staticEdit").onclick = () => { staticEditing = !staticEditing; renderStatic(); };
   $("#staticReset").onclick = () => confirm("Повернути стандартний набір кольорів?") && send({ cmd: "reset_static_colors" });
   $("#staticAdd").onclick = () => {
@@ -495,7 +495,11 @@ function renderEffects() {
 }
 
 function updateEffLabels() {
-  $("#effSpeedVal").textContent = speedFromSlider(+$("#effSpeed").value).toFixed(2) + " Гц";
+  const hz = speedFromSlider(+$("#effSpeed").value);
+  $("#effSpeedVal").textContent = $("#effSpeed").value + "%";
+  const hzText = `${hz.toFixed(2)} Гц — ${hz >= 1 ? hz.toFixed(1) + " циклів за секунду" : "один цикл за " + (1 / hz).toFixed(1) + " с"}`;
+  $("#effSpeedVal").title = hzText;
+  $("#effSpeed").title = hzText;
   $("#effSpreadVal").textContent = $("#effSpread").value + "%";
 }
 
@@ -545,11 +549,15 @@ function renderScenes() {
   const list = $("#sceneList");
   const names = Object.keys(S.scenes);
   if (!names.length) return list.replaceChildren(el("li", { className: "hint", textContent: "Збережених сцен немає" }));
-  list.replaceChildren(...names.map((name) => el("li", {},
-    el("button", { className: "btn", textContent: "▶ " + name,
-      onclick: () => send({ cmd: "recall_scene", name, fade: +$("#sceneFade").value || 0 }) }),
-    el("button", { className: "btn small", textContent: "✕", title: "Видалити",
-      onclick: () => confirm(`Видалити сцену «${name}»?`) && send({ cmd: "delete_scene", name }) }))));
+  list.replaceChildren(...names.map((name) => {
+    const li = el("li", {},
+      el("button", { className: "btn", textContent: "▶ " + name,
+        onclick: () => send({ cmd: "recall_scene", name, fade: +$("#sceneFade").value || 0 }) }),
+      el("button", { className: "btn small", textContent: "✕", title: "Видалити",
+        onclick: () => confirm(`Видалити сцену «${name}»?`) && send({ cmd: "delete_scene", name }) }));
+    li.dataset.name = name;
+    return li;
+  }));
 }
 
 function bindScenes() {
@@ -759,6 +767,114 @@ function fixtureMenu(id) {
   ];
 }
 
+let colorClipboard = null;
+
+function firstSelColor() {
+  const it = selItems()[0];
+  if (!it) return null;
+  const c = itemColor(it);
+  return { hex: toHex(c.r, c.g, c.b), w: c.w || 0 };
+}
+
+function colorMenu() {
+  const has = selected.size > 0;
+  const ids = [...selected];
+  const cur = firstSelColor();
+  return [
+    { title: has ? `Колір · вибрано ${selDescription(selItems())}` : "Колір · нічого не вибрано" },
+    has && { colors: (index) => send({ cmd: "static_color", index, ids }) },
+    { icon: "⧉", label: "Копіювати колір", disabled: !cur, action: () => {
+        colorClipboard = cur; toast(`Скопійовано ${cur.hex}`, true);
+      } },
+    { icon: "📋", label: colorClipboard ? `Вставити колір ${colorClipboard.hex}` : "Вставити колір",
+      disabled: !colorClipboard || !has,
+      action: () => send({ cmd: "set_color", ids, hex: colorClipboard.hex, w: colorClipboard.w }) },
+    { sep: true },
+    { icon: "☀", label: "Яскравість 100%", disabled: !has, action: () => send({ cmd: "set_color", ids, dimmer: 255 }) },
+    { icon: "½", label: "Яскравість 50%", disabled: !has, action: () => send({ cmd: "set_color", ids, dimmer: 128 }) },
+    { sep: true },
+    { icon: "★", label: "Зберегти як статичний колір…", disabled: !cur, action: () => $("#staticAdd").click() },
+    { icon: "⌫", label: has ? "Очистити вибрані" : "Очистити все", key: "Del", action: clearColors },
+  ];
+}
+
+function staticMenu(index) {
+  const ids = [...selected];
+  const c = index !== null ? S.static_colors[index] : null;
+  return [
+    c ? { title: `Статичний колір · ${c.name}` } : { title: "Статичні кольори" },
+    c && { icon: "●", label: selected.size ? "Застосувати до вибраних" : "Застосувати до всіх",
+      key: index < 9 ? String(index + 1) : "", action: () => send({ cmd: "static_color", index, ids }) },
+    c && selected.size > 0 && { icon: "◎", label: "Застосувати до всіх приладів",
+      action: () => send({ cmd: "static_color", index, ids: [] }) },
+    c && { icon: "✎", label: "Перейменувати…", action: () => {
+        const name = prompt("Нова назва кольору:", c.name);
+        if (name !== null && name.trim()) send({ cmd: "rename_static_color", index, name: name.trim() });
+      } },
+    c && { icon: "✕", label: "Видалити колір", danger: true, action: () =>
+        confirm(`Видалити колір «${c.name}»?`) && send({ cmd: "delete_static_color", index }) },
+    c && { sep: true },
+    { icon: "★", label: "Зберегти поточний колір…", disabled: !firstSelColor(), action: () => $("#staticAdd").click() },
+    { icon: "✎", label: staticEditing ? "Завершити редагування" : "Редагувати набір", action: () => $("#staticEdit").click() },
+    { icon: "↺", label: "Скинути до стандартних", action: () =>
+        confirm("Повернути стандартний набір кольорів?") && send({ cmd: "reset_static_colors" }) },
+    { sep: true },
+    { icon: "⌫", label: selected.size ? "Очистити вибрані прилади" : "Очистити всі прилади", key: "Del", action: clearColors },
+  ];
+}
+
+function effectMenu() {
+  const running = S.effect.type !== "none";
+  const effName = S.effects[$("#effType").value];
+  const picked = [...new Set(selItems().map((i) => i.f.id))];
+  return [
+    { title: running ? `Ефект · ${S.effects[S.effect.type]} (${S.effect.ids.length} прил.)` : "Ефекти" },
+    picked.length > 0 && { icon: "▶", label: `«${effName}» на вибраних`, action: () => $("#effApply").click() },
+    { icon: "▶", label: `«${effName}» на всіх приладах`, disabled: !S.fixtures.length, action: () =>
+        send({ cmd: "set_effect", type: $("#effType").value, ids: S.fixtures.map((f) => f.id), ...effectParams() }) },
+    running && { icon: "■", label: "Зупинити ефект", action: () => send({ cmd: "set_effect", type: "none" }) },
+    { sep: true },
+    { icon: "＋", label: "Додати поточний колір у палітру", action: () => $("#effAddColor").click() },
+    effColors.length > 0 && { icon: "⌫", label: "Очистити палітру", action: () => {
+        effColors.length = 0; renderEffColors(); liveEffectUpdate();
+      } },
+  ];
+}
+
+function sceneMenu(name) {
+  const fade = +$("#sceneFade").value || 0;
+  return [
+    { title: name ? `Сцена · ${name}` : "Сцени" },
+    name && { icon: "▶", label: fade ? `Викликати (перехід ${fade} с)` : "Викликати", action: () => send({ cmd: "recall_scene", name, fade }) },
+    name && fade > 0 && { icon: "⚡", label: "Викликати миттєво", action: () => send({ cmd: "recall_scene", name, fade: 0 }) },
+    name && { icon: "⟳", label: "Перезаписати поточним станом", action: () =>
+        confirm(`Перезаписати сцену «${name}» поточними кольорами?`) &&
+        send({ cmd: "save_scene", name, with_effect: $("#sceneWithEffect").checked }) },
+    name && { icon: "✕", label: "Видалити сцену", danger: true, action: () =>
+        confirm(`Видалити сцену «${name}»?`) && send({ cmd: "delete_scene", name }) },
+    name && { sep: true },
+    { icon: "＋", label: "Зберегти нову сцену…", action: () => {
+        const n = prompt("Назва сцени:", "");
+        if (n && n.trim()) send({ cmd: "save_scene", name: n.trim(), with_effect: $("#sceneWithEffect").checked });
+      } },
+  ];
+}
+
+function fixturesPanelMenu() {
+  return [
+    { title: "Прилади" },
+    { icon: "＋", label: "Додати прилад…", action: openAdd },
+    S.fixtures.length > 0 && { icon: "☰", label: "Вибрати всі прилади", key: "Ctrl+A", action: () => $("#selAll").click() },
+    selected.size > 0 && { icon: "○", label: "Зняти вибір", key: "Esc", action: () => $("#selNone").click() },
+    S.fixtures.length > 0 && { icon: "⇄", label: "Інвертувати вибір", action: () => $("#selInvert").click() },
+    { sep: true },
+    { icon: "⌫", label: selected.size ? "Очистити вибрані" : "Очистити всі кольори", key: "Del", action: clearColors },
+    { icon: "▤", label: "Патч приладів…", action: () => {
+        $("#openSettings").click(); document.querySelector(".tabs button[data-tab=tabPatch]").click();
+      } },
+  ];
+}
+
 function generalMenu() {
   const u = updateInfo || {};
   return [
@@ -779,17 +895,32 @@ function generalMenu() {
 function bindContextMenu() {
   document.addEventListener("contextmenu", (e) => {
     // у полях введення лишаємо стандартне меню (копіювати/вставити)
-    if (e.target.matches("input[type=text], input:not([type]), input[type=number], textarea")) return;
+    if (e.target instanceof Element && e.target.matches("input[type=text], input:not([type]), input[type=number], textarea")) return;
     e.preventDefault();
     if (!S || document.querySelector("dialog[open]")) return hideMenu();
     const cell = e.target.closest(".lamp.bar span");
     const tile = e.target.closest(".fx");
+    const zone = e.target.closest("[data-zone]")?.dataset.zone;
     let items;
     if (cell && tile) {
       const k = [...cell.parentNode.children].indexOf(cell);
       items = fixtureMenu(`${tile.dataset.id}#${k}`);
     } else if (tile) {
       items = fixtureMenu(tile.dataset.id);
+    } else if (zone === "fixtures") {
+      items = fixturesPanelMenu();
+    } else if (zone === "color") {
+      items = colorMenu();
+    } else if (zone === "side") {
+      // права колонка містить три блоки: статичні кольори, ефекти, сцени
+      const st = e.target.closest(".static-btn");
+      const sc = e.target.closest("#sceneList li[data-name]");
+      const block = e.target.closest("[data-block]")?.dataset.block;
+      if (st) items = staticMenu(+st.dataset.index);
+      else if (sc) items = sceneMenu(sc.dataset.name);
+      else if (block === "effects") items = effectMenu();
+      else if (block === "scenes") items = sceneMenu(null);
+      else items = staticMenu(null);
     } else {
       items = generalMenu();
     }
@@ -934,10 +1065,19 @@ function init() {
     renderFixtures(); syncSliders();
   };
   document.addEventListener("keydown", (e) => {
-    if (e.target.matches("input, select, textarea") || document.querySelector("dialog[open]")) return;
-    if (!$("#ctxMenu").hidden) return;
-    if (e.key === "b" || e.key === "B" || e.key === "и" || e.key === "И") send({ cmd: "blackout" });
-    if ((e.ctrlKey || e.metaKey) && e.key === "a") { e.preventDefault(); $("#selAll").click(); }
+    const ctrlA = (e.ctrlKey || e.metaKey) && e.code === "KeyA";
+    // у текстовому полі Ctrl+A виділяє лише його текст (стандартна поведінка)
+    const t = e.target instanceof Element ? e.target : document.body;
+    if (t.matches("input, textarea, [contenteditable]")) return;
+    if (document.querySelector("dialog[open]") || !$("#ctxMenu").hidden) {
+      if (ctrlA) e.preventDefault();  // не виділяти текст вікна
+      return;
+    }
+    if (t.matches("select")) return;
+    // e.code — фізична клавіша, тож працює і на українській розкладці
+    if (ctrlA) { e.preventDefault(); $("#selAll").click(); return; }
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.code === "KeyB") send({ cmd: "blackout" });
     if (e.key === "Escape") $("#selNone").click();
     if (e.key === "Delete" || e.key === "Backspace" || e.key === "0") { e.preventDefault(); clearColors(); }
     // 1..9 — швидкий вибір статичного кольору

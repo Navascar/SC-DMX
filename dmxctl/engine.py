@@ -241,6 +241,12 @@ class Engine:
             raise ValueError("забагато статичних кольорів (максимум 48)")
         self.static_colors.append(entry)
 
+    def cmd_rename_static_color(self, m):
+        name = str(m.get("name") or "").strip()
+        if not name:
+            raise ValueError("назва не може бути порожньою")
+        self.static_colors[int(m["index"])]["name"] = name[:40]
+
     def cmd_delete_static_color(self, m):
         self.static_colors.pop(int(m["index"]))
 
