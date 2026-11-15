@@ -19,9 +19,9 @@
     <output id="masterVal">100%</output>
   </div>
   <button id="updateBtn" class="btn update-btn" hidden></button>
-  <button id="clearColors" class="btn clear-btn" title="Очистити кольори вибраних приладів (або всіх, якщо нічого не вибрано) — Delete / 0"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M20 20H9L4 15a2 2 0 0 1 0-2.8L13.2 3a2 2 0 0 1 2.8 0l4.9 4.9a2 2 0 0 1 0 2.8L12 19.6M8 10.5l6.5 6.5"/></svg><span id="clearLabel">Очистити все</span></button>
-  <button id="blackout" class="btn danger icon-btn" title="Blackout — вимкнути все світло (B)" aria-label="Blackout"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3zM3 3l18 18"/></svg></button>
-  <button id="openSettings" class="btn ghost icon-btn" title="Налаштування" aria-label="Налаштування"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.3 2.6a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1c.5.4 1.1.7 1.7 1l.3 2.6h4l.3-2.6c.6-.3 1.2-.6 1.7-1l2.5 1 2-3.5zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"/></svg></button>
+  <button id="clearColors" data-icon="eraser" class="btn clear-btn" title="Очистити кольори вибраних приладів (або всіх, якщо нічого не вибрано) — Delete / 0"><span id="clearLabel">Очистити все</span></button>
+  <button id="blackout" data-icon="bulbOff" class="btn danger icon-btn" title="Blackout — вимкнути все світло (B)" aria-label="Blackout"></button>
+  <button id="openSettings" data-icon="settings" class="btn ghost icon-btn" title="Налаштування" aria-label="Налаштування"></button>
 </header>
 
 <div id="offline" class="offline" hidden>
@@ -33,13 +33,13 @@
     <div class="panel-head">
       <h2>Прилади</h2>
       <div class="actions">
-        <button class="btn small primary" id="openAdd" title="Додати прилад">＋ Додати</button>
+        <button class="btn small" id="openAdd" data-icon="plus" title="Додати прилад">Додати</button>
         <button class="btn small" id="selAll">Усі</button>
         <button class="btn small" id="selNone">Жодного</button>
         <button class="btn small" id="selInvert">Інверсія</button>
       </div>
     </div>
-    <div id="fixtureGrid" class="fixture-grid"></div>
+    <div id="fixtureGrid" class="fixture-grid"><div class="skel tile"></div><div class="skel tile"></div><div class="skel tile"></div></div>
   </section>
 
   <section class="panel color-panel" data-zone="color">
@@ -66,7 +66,7 @@
         <output id="presetSpeedVal">50%</output>
       </div>
       <div class="row preset-actions">
-        <button class="btn" id="presetOff" type="button">Вимкнути пресет</button>
+        <button class="btn" id="presetOff" type="button" data-icon="stop">Вимкнути пресет</button>
       </div>
     </div>
     <div data-block="scenes" class="color-scenes">
@@ -74,11 +74,14 @@
     <div class="form">
       <div class="row">
         <input id="sceneName" placeholder="Назва сцени">
-        <button class="btn primary" id="sceneSave">Зберегти</button>
+        <button class="btn" id="sceneSave">Зберегти</button>
       </div>
       <label class="check"><input type="checkbox" id="sceneWithEffect"> Зберегти разом з ефектом</label>
       <label>Час переходу, с <input id="sceneFade" type="number" min="0" max="60" step="0.5" value="1"></label>
-      <ul id="sceneList" class="scene-list"></ul>
+      <ul id="sceneList" class="scene-list">
+        <li class="skel line"></li><li class="skel line"></li>
+      </ul>
+    </div>
     </div>
   </section>
 
@@ -88,10 +91,10 @@
       <h2>Статичні кольори</h2>
       <span id="staticTarget" class="muted">Для всіх приладів</span>
     </div>
-    <div id="staticGrid" class="static-grid"></div>
+    <div id="staticGrid" class="static-grid"><div class="skel chip"></div><div class="skel chip"></div><div class="skel chip"></div><div class="skel chip"></div><div class="skel chip"></div><div class="skel chip"></div><div class="skel chip"></div><div class="skel chip"></div></div>
     <div class="row static-actions">
-      <button class="btn small" id="staticAdd" title="Зберегти колір першого вибраного приладу">＋ Зберегти поточний</button>
-      <button class="btn small" id="staticEdit">Редагувати</button>
+      <button class="btn small" id="staticAdd" data-icon="plus" title="Зберегти колір першого вибраного приладу">Зберегти поточний</button>
+      <button class="btn small" id="staticEdit" data-icon="edit">Редагувати</button>
       <button class="btn small" id="staticReset" hidden>Скинути до стандартних</button>
     </div>
     </div>
@@ -104,15 +107,13 @@
       <div class="palette-row">
         <span>Палітра</span>
         <div id="effColors" class="eff-colors"></div>
-        <button class="btn small" id="effAddColor" title="Додати поточний колір">＋</button>
+        <button class="btn small icon-btn" id="effAddColor" data-icon="plus" title="Додати поточний колір у палітру" aria-label="Додати колір у палітру"></button>
       </div>
       <label class="check"><input type="checkbox" id="effBySeg" checked> По сегментах</label>
       <div class="row">
-        <button class="btn primary" id="effApply">Запустити на вибраних</button>
-        <button class="btn" id="effStop">Зупинити</button>
+        <button class="btn primary" id="effApply" data-icon="play">Запустити на вибраних</button>
+        <button class="btn" id="effStop" data-icon="stop">Зупинити</button>
       </div>
-    </div>
-
     </div>
     </div>
   </section>
@@ -128,7 +129,7 @@
 <dialog id="settings">
   <form method="dialog" class="dialog-head">
     <h2>Налаштування</h2>
-    <button class="btn ghost" value="close">✕</button>
+    <button class="btn ghost icon-btn" value="close" data-icon="x" aria-label="Закрити"></button>
   </form>
   <nav class="tabs">
     <button data-tab="tabOutput" class="active">DMX-вихід</button>
@@ -182,7 +183,7 @@
     </table>
     <div id="overlapWarn" class="warn" hidden></div>
     <div class="row" style="margin-top:12px">
-      <button class="btn primary" type="button" data-open-add>＋ Додати прилад</button>
+      <button class="btn primary" type="button" data-open-add data-icon="plus">Додати прилад</button>
     </div>
   </div>
 
@@ -210,14 +211,14 @@
     </div>
     <pre id="aboutNotes" class="notes" hidden></pre>
     <h3>Вимкнення</h3>
-    <button class="btn danger" id="quitApp" type="button">Вимкнути програму</button>
+    <button class="btn danger" id="quitApp" type="button" data-icon="power">Вимкнути програму</button>
   </div>
 </dialog>
 
 <dialog id="addDlg" class="small-dlg">
   <form method="dialog" class="dialog-head">
     <h2>Новий прилад</h2>
-    <button class="btn ghost" value="close">✕</button>
+    <button class="btn ghost icon-btn" value="close" data-icon="x" aria-label="Закрити"></button>
   </form>
   <div class="form">
     <label>Профіль (режим DMX на приладі) <select id="addProfile"></select></label>
@@ -237,7 +238,7 @@
 <dialog id="updDlg" class="small-dlg">
   <form method="dialog" class="dialog-head">
     <h2 id="updTitle">Доступне оновлення</h2>
-    <button class="btn ghost" value="close">✕</button>
+    <button class="btn ghost icon-btn" value="close" data-icon="x" aria-label="Закрити"></button>
   </form>
   <p id="updSubtitle" class="muted"></p>
   <pre id="updNotes" class="notes"></pre>
@@ -251,7 +252,7 @@
 <dialog id="propDlg" class="small-dlg">
   <form method="dialog" class="dialog-head">
     <h2>Властивості приладу</h2>
-    <button class="btn ghost" value="close">✕</button>
+    <button class="btn ghost icon-btn" value="close" data-icon="x" aria-label="Закрити"></button>
   </form>
   <div class="form">
     <label>Назва <input id="propName"></label>
@@ -264,7 +265,7 @@
     <p id="propInfo" class="info"></p>
     <p id="propWarn" class="warn" hidden></p>
     <details id="propTest" class="ch-test">
-      <summary>🔧 Тест каналів і власний профіль</summary>
+      <summary><span data-icon="wrench"></span>Тест каналів і власний профіль</summary>
       <div class="row">
         <label class="inline">Каналів для тесту <input id="testCount" type="number" min="1" max="64"></label>
         <button class="btn small" id="testZero" type="button">Усі на 0</button>
@@ -273,14 +274,14 @@
       <div id="testRows" class="test-rows"></div>
       <div class="row">
         <input id="testProfName" placeholder="Назва профілю, напр. «Мій бар 8 кан.»">
-        <button class="btn primary" id="testSave" type="button">Зберегти профіль і призначити</button>
+        <button class="btn" id="testSave" type="button">Зберегти профіль і призначити</button>
       </div>
     </details>
     <div class="row">
       <button class="btn primary" id="propSave" type="button">Зберегти</button>
       <button class="btn" id="propDup" type="button">Дублювати</button>
       <span class="grow"></span>
-      <button class="btn danger" id="propDelete" type="button">Видалити</button>
+      <button class="btn danger" id="propDelete" type="button" data-icon="trash">Видалити</button>
     </div>
   </div>
 </dialog>
