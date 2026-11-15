@@ -109,7 +109,7 @@ function connect() {
     setOutput({ ok: false, status: "немає з'єднання з сервером" });
     const restarting = updateInfo && updateInfo.status === "restarting";
     $("#offline").hidden = false;
-    $("#offlineText").textContent = quitting ? "Програму вимкнено. Це вікно можна закрити."
+    $("#offlineText").textContent = quitting ? "Програму вимкнено."
       : restarting ? "Встановлюється оновлення, програма перезапускається…" : "Підключення…";
     if (!quitting) setTimeout(connect, 1500);
   };
@@ -164,7 +164,7 @@ function onMessage(m) {
       el("option", { value: i, textContent: d.bus !== undefined
         ? `${d.product}${d.serial ? " #" + d.serial : ""} — USB ${d.bus}:${d.address}` : d.product })));
     sel.value = cur;
-    toast(m.devices.length ? `Знайдено uDMX: ${m.devices.length}` : "uDMX не знайдено — перевірте підключення і драйвер", true);
+    toast(m.devices.length ? `Знайдено uDMX: ${m.devices.length}` : "uDMX не знайдено", true);
   } else if (m.type === "update") {
     updateInfo = m.update;
     renderUpdate();
@@ -290,7 +290,7 @@ function renderFixtures() {
       lamp = el("div", { className: "lamp" });
     }
     const tile = el("div", { className: "fx" + (selected.has(f.id) ? " sel" : "") + (n > 1 ? " wide" : ""),
-                             title: f.profile + (n > 1 ? "\nКлік по сегменту — вибрати окремий сегмент" : "") },
+                             title: f.profile },
       lamp,
       el("div", { className: "name", textContent: f.name }),
       el("div", { className: "addr", textContent: `DMX ${f.address}–${f.address + S.profiles[f.profile].length - 1}` }),
@@ -381,7 +381,7 @@ function updateLive(m) {
 const SLIDERS = [
   ["r", "Червоний", "#ff4d4d"], ["g", "Зелений", "#3ecf5e"], ["b", "Синій", "#4f8cff"],
   ["w", "Білий", "#ffffff"], ["a", "Бурштин", "#ffb000"], ["uv", "УФ", "#9b5cff"],
-  ["dimmer", "Яскравість", "#cccccc"], ["strobe", "Строб (кан.)", "#888888"],
+  ["dimmer", "Яскравість", "#cccccc"], ["strobe", "Строб", "#888888"],
 ];
 
 function buildSliders() {
@@ -437,7 +437,7 @@ function syncSliders() {
   const sel = [...new Set(items.map((i) => i.f))];
   const desc = selDescription(items);
   $("#selInfo").textContent = desc ? `Вибрано ${desc}` : "Нічого не вибрано";
-  $("#staticTarget").textContent = desc ? `Для вибраних (${desc})` : "Для всіх приладів";
+  $("#staticTarget").textContent = desc ? "Для вибраних" : "Для всіх приладів";
   renderPresets();
   $("#clearLabel").textContent = desc ? "Очистити вибрані" : "Очистити все";
   // показувати лише ті канали, що є у вибраних приладів (або всі, якщо не вибрано)
@@ -521,7 +521,7 @@ function renderUpdate() {
     : busy ? u.progress
     : u.error ? u.error
     : u.available ? `Доступна версія ${u.latest}`
-    : u.latest ? `Встановлено останню версію (${u.current})` : "");
+    : u.latest ? "Встановлено останню версію" : "");
   $("#checkUpdate").textContent = u.available ? "Оновити до " + u.latest : "Перевірити оновлення";
   $("#checkUpdate").disabled = busy || u.status === "checking";
   $("#aboutNotes").hidden = !(u.available && u.notes);
@@ -691,7 +691,7 @@ function bindStatic() {
     .then((ok) => ok && send({ cmd: "reset_static_colors" }));
   $("#staticAdd").onclick = () => {
     const f = selItems()[0] && itemColor(selItems()[0]);
-    if (!f) return toast("Виберіть прилад і налаштуйте колір, який хочете зберегти");
+    if (!f) return toast("Спершу виберіть прилад");
     uiPrompt("Назва кольору", "Мій колір").then((name) => {
       if (name === null) return;
       send({ cmd: "add_static_color", name, hex: toHex(f.r, f.g, f.b), w: f.w });
@@ -725,7 +725,7 @@ function renderEffects() {
 function updateEffLabels() {
   const hz = speedFromSlider(+$("#effSpeed").value);
   $("#effSpeedVal").textContent = $("#effSpeed").value + "%";
-  const hzText = `${hz.toFixed(2)} Гц — ${hz >= 1 ? hz.toFixed(1) + " циклів за секунду" : "один цикл за " + (1 / hz).toFixed(1) + " с"}`;
+  const hzText = `${hz.toFixed(2)} Гц`;
   $("#effSpeedVal").title = hzText;
   $("#effSpeed").title = hzText;
   $("#effSpreadVal").textContent = $("#effSpread").value + "%";
@@ -733,7 +733,7 @@ function updateEffLabels() {
 
 function renderEffColors() {
   $("#effColors").replaceChildren(...effColors.map((c, i) => {
-    const s = el("span", { title: `${c} — клік, щоб прибрати` });
+    const s = el("span", { title: "Прибрати" });
     s.style.background = c;
     s.onclick = () => { effColors.splice(i, 1); renderEffColors(); liveEffectUpdate(); };
     return s;
@@ -959,8 +959,8 @@ function updatePropInfo() {
 // ------------------------------------------------------------ тест каналів ---
 const TEST_ROLES = [
   ["r", "Червоний"], ["g", "Зелений"], ["b", "Синій"], ["w", "Білий"], ["a", "Бурштин"], ["uv", "УФ"],
-  ["dim", "Диммер"], ["strobe", "Строб"], ["macro", "Програма (пресет)"], ["speed", "Швидкість програми"],
-  ["zero", "Не використ. (0)"], ["full", "Завжди 255"],
+  ["dim", "Диммер"], ["strobe", "Строб"], ["macro", "Програма"], ["speed", "Швидкість програми"],
+  ["zero", "Не використовується"], ["full", "Завжди 255"],
   ["fixed", "Фіксоване значення"],
 ];
 const tested = new Set();   // адреси, якими зараз керує тест
@@ -1008,7 +1008,7 @@ function bindTest() {
       if (!$("#testCount").value) $("#testCount").value = prof.length;
       if (!$("#testProfName").value) {
         const f = S.fixtures.find((x) => x.id === propId);
-        $("#testProfName").value = `${f ? f.name : "Прилад"} (власний)`;
+        $("#testProfName").value = `${f ? f.name : "Прилад"} власний`;
       }
       buildTestRows();
     }
@@ -1573,7 +1573,7 @@ async function loadLibrary(append = false) {
   for (const fx of data.results) grid.append(libCard(fx));
   if (!grid.children.length) grid.append(el("div", { className: "lib-empty",
     textContent: lib.type === "recent" && !lib.q ? "Тут з'являться прилади, які ви додавали з бібліотеки."
-      : "Нічого не знайдено. Спробуйте коротший запит або інший розділ." }));
+      : "Нічого не знайдено" }));
   lib.offset += data.results.length;
   $("#libMore").hidden = !data.more;
 }
@@ -1628,7 +1628,7 @@ function renderAddChosen() {
   $("#addProfileRow").hidden = !!d;
   if (d) $("#libChosen").replaceChildren(el("b", { textContent: `${d.fx.m} ${d.fx.n}` }), el("br"),
                                          `Режим: ${d.mode[0]} · ${d.mode[1].length} кан.`);
-  else $("#libChosen").textContent = "Модель не вибрано. Виберіть її з бібліотеки або стандартний профіль для невідомого приладу.";
+  else $("#libChosen").textContent = "Модель не вибрано";
 }
 
 const addChannels = () => addDevice ? addDevice.mode[1] : S.profiles[$("#addProfile").value] || [];
@@ -1659,7 +1659,7 @@ function updateAddInfo() {
   const start = +$("#addAddress").value || 1;
   const last = start + ch.length * count - 1;
   $("#addInfo").textContent = `${ch.length} кан.${n > 1 ? ` · ${n} сегм.` : ""} · канали: ${ch.join(" ")}` +
-    ` · займе адреси ${start}–${last}${last > 512 ? " (за межами 512!)" : ""}`;
+    ` · займе адреси ${start}–${last}${last > 512 ? " · за межами 512" : ""}`;
 }
 
 // після успішного додавання — закрити вікно і вибрати новий прилад

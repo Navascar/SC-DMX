@@ -223,8 +223,7 @@ async def check_updates(app: web.Application) -> None:
     except (OSError, TimeoutError) as exc:  # URLError — підклас OSError: немає інтернету
         log.info("Немає підключення до інтернету — перевірку оновлень відкладено (%s)", exc)
         await set_update(app, status="idle", offline=True,
-                         error="Немає підключення до інтернету. Програма працює як завжди, "
-                               "оновлення перевіряться, щойно зʼявиться мережа.")
+                         error="Немає підключення до інтернету")
         return
     except Exception as exc:  # noqa: BLE001
         log.warning("Не вдалося перевірити оновлення: %s", exc)

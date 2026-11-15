@@ -58,9 +58,15 @@ jobs:
       - name: Запуск програми, знімок екрана, панель задач
         shell: pwsh
         run: |
+          # чужий сервер на порту 8080: SC DMX має запуститися на іншому порту, а не відкрити порожнє вікно
+          Start-Process python -ArgumentList '-m', 'http.server', '8080' -WindowStyle Hidden
+          Start-Sleep -Seconds 2
           $lnk = Join-Path ([Environment]::GetFolderPath('Programs')) 'SC DMX.lnk'
           Start-Process $lnk
           Start-Sleep -Seconds 25
+          $page = try { (Invoke-WebRequest 'http://127.0.0.1:8081/' -UseBasicParsing -TimeoutSec 3).Content } catch { '' }
+          "SC DMX на порту 8081: $($page -match '<title>SC DMX</title>')"
+          if ($page -notmatch '<title>SC DMX</title>') { exit 1 }
           Add-Type -AssemblyName System.Windows.Forms, System.Drawing
           $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
           $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height

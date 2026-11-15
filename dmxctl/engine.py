@@ -389,7 +389,7 @@ class Engine:
         if not targets and not m.get("ids"):
             targets = {f.id: f for f in self.fixtures if has_presets(f)}
         if not targets:
-            raise ValueError("Пресети доступні лише для LED-барів — виберіть бар")
+            raise ValueError("Пресети доступні лише для LED-барів")
         self._fade = None
         for f in targets.values():
             if set_n:
@@ -555,7 +555,7 @@ class Engine:
         if not name:
             raise ValueError("вкажіть назву профілю")
         if name in DEFAULT_PROFILES:
-            raise ValueError("вбудований профіль не можна змінити — дайте іншу назву")
+            raise ValueError("вбудований профіль не можна змінити")
         channels = [c.strip() for c in m["channels"]]
         validate_profile(channels)
         if m.get("assign_to"):  # одразу призначити профіль приладу

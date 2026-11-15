@@ -176,7 +176,7 @@ class NullOutput(Output):
     def info(self) -> dict:
         d = super().info()
         if self.ok:
-            d["status"] = "Симуляція (без обладнання)"
+            d["status"] = "Симуляція"
         return d
 
 
@@ -354,7 +354,7 @@ class UDmxOutput(Output):
             raise RuntimeError("не знайдено бібліотеку libusb (pip install libusb-package)")
         devices = find_udmx_devices()
         if not devices:
-            raise RuntimeError("uDMX не знайдено — перевірте підключення і драйвер (Zadig → WinUSB)")
+            raise RuntimeError("uDMX не знайдено")
         idx = int(self.params.get("index", 0) or 0)
         info = devices[min(idx, len(devices) - 1)]
         self.dev = info["dev"]

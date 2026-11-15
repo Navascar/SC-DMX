@@ -11,7 +11,7 @@
 #
 # -NoLaunch  — не запускати програму наприкінці.
 # -Progress  — режим для вікна встановлення (installer/setup-gui.ps1): без запитань і консолі,
-#              хід встановлення — рядками @@STEP|крок|текст, @@LOG|текст, @@WARN|..., @@ERROR|текст, @@DONE.
+#              хід встановлення — рядками @@STEP|крок|текст, @@LOG|текст, @@ERROR|текст, @@DONE.
 
 param([switch]$NoLaunch, [switch]$Progress)
 
@@ -60,7 +60,7 @@ Step 'python' 'Пошук Python 3.10+'
 $Python = Find-Python
 if (-not $Python) {
     if (Get-Command winget -ErrorAction SilentlyContinue) {
-        Step 'python' 'Встановлення Python 3.13 (winget)'
+        Step 'python' 'Встановлення Python'
         $null = Run 'winget' @('install', '-e', '--id', 'Python.Python.3.13', '--scope', 'user', '--silent',
                                '--accept-package-agreements', '--accept-source-agreements', '--disable-interactivity')
         $env:Path = [Environment]::GetEnvironmentVariable('Path', 'User') + ';' + [Environment]::GetEnvironmentVariable('Path', 'Machine')
@@ -72,7 +72,7 @@ if (-not $Python) {
     }
     if (-not $Python) {
         if (-not $Progress) { Start-Process 'https://www.python.org/downloads/' }
-        Fail 'Python 3.10+ не знайдено. Встановіть його з python.org (позначте "Add python.exe to PATH") і запустіть встановлення знову.'
+        Fail 'Python 3.10+ не знайдено. Встановіть його з python.org і запустіть встановлення знову.'
     }
 }
 Log "Python: $Python"
@@ -82,7 +82,7 @@ $Src = $null
 $Tmp = $null
 if ($PSScriptRoot -and (Test-Path (Join-Path $PSScriptRoot 'dmxctl\__init__.py'))) {
     $Src = $PSScriptRoot
-    Step 'files' "Копіювання програми"
+    Step 'files' 'Копіювання програми'
 } else {
     Step 'files' 'Завантаження останньої версії з GitHub'
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -102,7 +102,7 @@ if ($PSScriptRoot -and (Test-Path (Join-Path $PSScriptRoot 'dmxctl\__init__.py')
 
 # Якщо програма запущена — її треба закрити, щоб оновити файли
 $running = $false
-# (інший застосунок на порту 8080 — не SC DMX: він встановленню не заважає)
+# інший застосунок на порту 8080 — не SC DMX: він встановленню не заважає
 try { $running = (Invoke-WebRequest 'http://127.0.0.1:8080/' -UseBasicParsing -TimeoutSec 2).Content -match '<title>SC DMX</title>' } catch { }
 if ($running) {
     if ($Progress) { Fail 'SC DMX зараз відкрито. Закрийте вікно програми й спробуйте ще раз.' }
@@ -132,13 +132,13 @@ $VenvPy = Join-Path $AppDir '.venv\Scripts\python.exe'
 $Pyw = Join-Path $AppDir '.venv\Scripts\pythonw.exe'
 Step 'venv' 'Середовище Python'
 if (-not (Test-Path $VenvPy)) {
-    if ((Run $Python @('-m', 'venv', (Join-Path $AppDir '.venv'))) -ne 0) { Fail 'не вдалося створити віртуальне середовище' }
+    if ((Run $Python @('-m', 'venv', (Join-Path $AppDir '.venv'))) -ne 0) { Fail 'Не вдалося створити середовище Python.' }
 }
-Step 'deps' 'Встановлення залежностей (вперше — близько 250 МБ: вбудоване вікно програми)'
+Step 'deps' 'Встановлення компонентів'
 $null = Run $VenvPy @('-m', 'pip', 'install', '--disable-pip-version-check', '--progress-bar', 'off', '-q', '--upgrade', 'pip')
 $code = Run $VenvPy @('-m', 'pip', 'install', '--disable-pip-version-check', '--progress-bar', 'off',
                       '-r', (Join-Path $AppDir 'requirements.txt'))
-if ($code -ne 0) { Fail 'не вдалося встановити залежності. Перевірте інтернет і спробуйте ще раз.' }
+if ($code -ne 0) { Fail 'Не вдалося встановити компоненти. Перевірте інтернет і спробуйте ще раз.' }
 
 # --------------------------------------------------------------- ярлики ---
 # Ярлики з ідентифікатором застосунку: на панелі задач — «SC DMX» з іконкою програми, а не «Python»
@@ -160,22 +160,11 @@ if ($code -ne 0) {
     }
 }
 
-# ---------------------------------------------------------- перевірка uDMX ---
-Step 'udmx' 'Перевірка uDMX'
-Push-Location $AppDir
-$code = Run $VenvPy @('-m', 'dmxctl', '--check')
-Pop-Location
-if ($code -ne 0) {
-    $hint = 'uDMX поки не працює. Якщо адаптер підключено, встановіть драйвер WinUSB через Zadig (https://zadig.akeo.ie): Options → List All Devices → «uDMX» → WinUSB → Install. Перезапускати програму не треба.'
-    if ($Progress) { Emit "@@WARN|udmx|$hint" } else { Write-Host "`n$hint" -ForegroundColor Yellow }
-}
-
 if ($Progress) { Emit '@@DONE'; exit 0 }
 if ($NoLaunch) {
     Step 'done' 'Готово!'
     exit 0
 }
 Step 'done' 'Готово! Запускаю SC DMX'
-Write-Host 'Надалі запускайте програму ярликом «SC DMX» на робочому столі. Оновлення програма пропонує сама.'
 Start-Process -FilePath $Pyw -ArgumentList ('"' + (Join-Path $AppDir 'sc-dmx.pyw') + '"') -WorkingDirectory $AppDir
 if ($Host.Name -eq 'ConsoleHost' -and $PSScriptRoot) { Start-Sleep -Seconds 4 }

@@ -116,6 +116,24 @@ try {
         </Setter.Value>
       </Setter>
     </Style>
+    <Style x:Key="Min" TargetType="Button" BasedOn="{StaticResource Close}">
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="b" Background="Transparent" CornerRadius="8">
+              <Path Data="M0,0 L10,0" Stroke="#9AA1AE" StrokeThickness="1.6"
+                    StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="b" Property="Background" Value="#1F232C"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
     <Style TargetType="ProgressBar">
       <Setter Property="Height" Value="6"/>
       <Setter Property="Template">
@@ -155,13 +173,16 @@ try {
           <TextBlock Text="SC DMX" FontWeight="SemiBold" FontSize="16" Margin="10,0,0,0" VerticalAlignment="Center"/>
           <TextBlock x:Name="VersionText" Foreground="{StaticResource Muted}" FontSize="12" Margin="8,2,0,0" VerticalAlignment="Center"/>
         </StackPanel>
-        <Button x:Name="CloseX" Style="{StaticResource Close}" HorizontalAlignment="Right" ToolTip="Закрити"/>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+          <Button x:Name="MinBtn" Style="{StaticResource Min}" ToolTip="Згорнути" Margin="0,0,4,0"/>
+          <Button x:Name="CloseX" Style="{StaticResource Close}" ToolTip="Закрити"/>
+        </StackPanel>
       </Grid>
 
       <StackPanel Grid.Row="1" Margin="24,18,24,0">
         <TextBlock x:Name="Heading" FontSize="20" FontWeight="SemiBold" Text="Встановлення SC DMX"/>
         <TextBlock x:Name="Sub" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,6,0,0" TextWrapping="Wrap"
-                   Text="Програма встановиться для поточного користувача, права адміністратора не потрібні. Під час першого встановлення завантажується близько 250 МБ, тому потрібен інтернет. Налаштування й сцени зберігаються."/>
+                   Text="Потрібне підключення до інтернету."/>
         <StackPanel x:Name="Steps" Margin="0,18,0,0"/>
         <ProgressBar x:Name="Bar" Minimum="0" Maximum="100" Value="0" Margin="0,14,0,0"/>
         <TextBlock x:Name="Status" Foreground="{StaticResource Muted}" FontSize="11" Margin="0,8,0,0"
@@ -190,7 +211,7 @@ try {
     exit 3
 }
 $ui = @{}
-foreach ($n in 'TitleBar', 'CloseX', 'VersionText', 'Heading', 'Sub', 'Steps', 'Bar', 'Status', 'Note', 'NoteText',
+foreach ($n in 'TitleBar', 'MinBtn', 'CloseX', 'VersionText', 'Heading', 'Sub', 'Steps', 'Bar', 'Status', 'Note', 'NoteText',
                'LogBtn', 'MainBtn', 'SecondBtn') { $ui[$n] = $win.FindName($n) }
 $icon = Join-Path $Source 'dmxctl\static\icon.ico'
 if (Test-Path $icon) { try { $win.Icon = [Windows.Media.Imaging.BitmapFrame]::Create([Uri]$icon) } catch { } }
@@ -204,9 +225,8 @@ $StepDefs = @(
     @('python', 'Python', 2),
     @('files', 'Файли програми', 10),
     @('venv', 'Середовище Python', 18),
-    @('deps', 'Залежності (вперше близько 250 МБ)', 26),
-    @('shortcuts', 'Ярлики на робочому столі й у меню «Пуск»', 90),
-    @('udmx', 'Перевірка uDMX', 95)
+    @('deps', 'Компоненти', 26),
+    @('shortcuts', 'Ярлики', 92)
 )
 $StepUi = @{}
 foreach ($d in $StepDefs) {
@@ -255,11 +275,6 @@ function Set-StepState($id, $state) {
             $s.Glyph.Data = [Windows.Media.Geometry]::Parse('M0,3.5 L2.8,6.2 L8,0.6'); $s.Glyph.Stroke = Brush '#FFFFFF'
             $s.Label.Foreground = Brush '#E6E8EE'
         }
-        'warn' {
-            $s.Ring.StrokeDashArray = $null; $s.Ring.Stroke = Brush '#F5A524'; $s.Ring.Fill = Brush '#F5A524'
-            $s.Glyph.Data = [Windows.Media.Geometry]::Parse('M0,0 L0,4.5 M0,7.2 L0,7.4'); $s.Glyph.Stroke = Brush '#0F1115'
-            $s.Label.Foreground = Brush '#E6E8EE'
-        }
         'error' {
             $s.Ring.StrokeDashArray = $null; $s.Ring.Stroke = Brush '#EF5B60'; $s.Ring.Fill = Brush '#EF5B60'
             $s.Glyph.Data = [Windows.Media.Geometry]::Parse('M0,0 L6,6 M6,0 L0,6'); $s.Glyph.Stroke = Brush '#FFFFFF'
@@ -301,28 +316,37 @@ $script:ErrTask = $null
 $script:CurStep = $null
 $script:DepLines = 0
 $script:Failed = $false
-$script:Warned = $false
 $script:Done = $false
 
 # Запущена SC DMX: її процеси (python/pythonw з dmxctl або sc-dmx.pyw) або сама програма на порту 8080.
-# Інший застосунок на порту 8080 — це не SC DMX, встановленню він не заважає.
+# Інший застосунок на порту 8080 — це не SC DMX, встановленню він не заважає; тоді SC DMX працює
+# на одному з наступних портів (8081…8099).
 function Get-AppProcs {
     try {
         @(Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" -ErrorAction Stop |
             Where-Object { $_.CommandLine -match 'dmxctl|sc-dmx\.pyw' })
     } catch { @() }
 }
-function Test-ScDmxServer {
+function Test-ScDmxServer($port) {
     try {
-        $r = [Net.WebRequest]::Create('http://127.0.0.1:8080/')
+        $r = [Net.WebRequest]::Create("http://127.0.0.1:$port/")
         $r.Timeout = 1500
+        $r.Proxy = $null
         $resp = $r.GetResponse()
         $text = (New-Object IO.StreamReader ($resp.GetResponseStream())).ReadToEnd()
         $resp.Close()
         return $text -match '<title>SC DMX</title>'
     } catch { return $false }
 }
-function App-Running { return ((Get-AppProcs).Count -gt 0) -or (Test-ScDmxServer) }
+function Find-AppPort {
+    try {
+        $listening = [Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties().GetActiveTcpListeners() |
+            ForEach-Object { $_.Port } | Where-Object { $_ -ge 8080 -and $_ -le 8099 } | Sort-Object -Unique
+    } catch { $listening = 8080 }
+    foreach ($p in $listening) { if (Test-ScDmxServer $p) { return $p } }
+    return $null
+}
+function App-Running { return ((Get-AppProcs).Count -gt 0) -or ($null -ne (Find-AppPort)) }
 
 function Pump { $win.Dispatcher.Invoke([Action]{ }, [Windows.Threading.DispatcherPriority]::Background) }
 
@@ -333,7 +357,8 @@ function Close-App {
     Pump
     try {
         $ws = New-Object Net.WebSockets.ClientWebSocket
-        if ($ws.ConnectAsync([Uri]'ws://127.0.0.1:8080/ws', [Threading.CancellationToken]::None).Wait(2000)) {
+        $port = Find-AppPort
+        if ($port -and $ws.ConnectAsync([Uri]"ws://127.0.0.1:$port/ws", [Threading.CancellationToken]::None).Wait(2000)) {
             $bytes = [Text.Encoding]::UTF8.GetBytes('{"cmd":"quit"}')
             $seg = New-Object 'ArraySegment[byte]' -ArgumentList (, $bytes)
             [void]$ws.SendAsync($seg, [Net.WebSockets.WebSocketMessageType]::Text, $true,
@@ -356,7 +381,7 @@ function Close-App {
 }
 
 function Show-RunningNote {
-    Show-Note 'SC DMX зараз відкрито. Щоб встановити нову версію, інсталятор закриє програму, прожектори згаснуть. Налаштування й сцени збережуться.' 'warn'
+    Show-Note 'SC DMX відкрито. Її буде закрито, прожектори згаснуть.' 'warn'
     $ui.MainBtn.Content = 'Закрити SC DMX і встановити'
     $script:CloseMode = $true
 }
@@ -385,7 +410,6 @@ function Handle-Line($line) {
                 $ui.Bar.Value = [Math]::Max($ui.Bar.Value, 26 + 60 * (1 - [Math]::Exp(-$script:DepLines / 14)))
             }
         }
-        'WARN' { $script:Warned = $true; Set-StepState $parts[1] 'warn'; Show-Note $parts[2] 'warn' }
         'ERROR' {
             $script:Failed = $true
             if ($script:CurStep) { Set-StepState $script:CurStep 'error' }
@@ -400,7 +424,7 @@ function Start-Install {
         if (-not $script:CloseMode -and -not $AutoTest) { Show-RunningNote; return }
         Save-Shot '0-running'
         if (-not (Close-App)) {
-            Show-Note 'Не вдалося закрити SC DMX. Закрийте вікно програми вручну й натисніть «Встановити».' 'error'
+            Show-Note 'Не вдалося закрити SC DMX. Закрийте її вручну.' 'error'
             $ui.MainBtn.Content = 'Встановити'
             $script:CloseMode = $false
             return
@@ -409,10 +433,10 @@ function Start-Install {
     $script:CloseMode = $false
     $ui.Note.Visibility = 'Collapsed'
     foreach ($id in $Order) { Set-StepState $id 'wait' }
-    $script:Failed = $false; $script:Warned = $false; $script:Done = $false; $script:DepLines = 0; $script:CurStep = $null
+    $script:Failed = $false; $script:Done = $false; $script:DepLines = 0; $script:CurStep = $null
     $ui.Bar.Value = 0
     $ui.Heading.Text = 'Встановлення…'
-    $ui.Sub.Text = 'Це може тривати кілька хвилин. Вікно можна згорнути.'
+    $ui.Sub.Text = 'Це може тривати кілька хвилин.'
     $ui.MainBtn.Visibility = 'Collapsed'
     $ui.SecondBtn.Content = 'Скасувати'
     $ui.LogBtn.Visibility = 'Visible'
@@ -444,7 +468,7 @@ function Finish-Install {
         $ui.Bar.Value = 100
         $script:Installed = $true
         $ui.Heading.Text = 'SC DMX встановлено'
-        $ui.Sub.Text = 'Надалі запускайте програму ярликом «SC DMX» на робочому столі або в меню «Пуск». Оновлення програма пропонує сама.'
+        $ui.Sub.Visibility = 'Collapsed'
         $ui.Status.Text = ' '
         $ui.MainBtn.Content = 'Запустити SC DMX'
         $ui.MainBtn.Visibility = 'Visible'
@@ -453,10 +477,10 @@ function Finish-Install {
     } else {
         if (-not $script:Failed) {
             if ($script:CurStep) { Set-StepState $script:CurStep 'error' }
-            Show-Note "Встановлення перервано (код $code). Подробиці — у журналі." 'error'
+            Show-Note 'Встановлення перервано.' 'error'
         }
         $ui.Heading.Text = 'Не вдалося встановити'
-        $ui.Sub.Text = 'Перевірте інтернет і спробуйте ще раз. Уже встановлені налаштування й сцени не постраждали.'
+        $ui.Sub.Text = 'Перевірте інтернет і спробуйте ще раз.'
         $ui.MainBtn.Content = 'Спробувати ще раз'
         $ui.MainBtn.Visibility = 'Visible'
         $ui.SecondBtn.Content = 'Закрити'
@@ -506,6 +530,7 @@ function Launch-App {
 
 # ------------------------------------------------------------------- події ---
 $ui.TitleBar.Add_MouseLeftButtonDown({ try { $win.DragMove() } catch { } })
+$ui.MinBtn.Add_Click({ $win.WindowState = 'Minimized' })
 $ui.CloseX.Add_Click({ $win.Close() })
 $ui.SecondBtn.Add_Click({ $win.Close() })
 $ui.LogBtn.Add_Click({ try { Start-Process -FilePath 'notepad.exe' -ArgumentList "`"$LogPath`"" } catch { } })

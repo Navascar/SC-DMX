@@ -19,8 +19,8 @@
     <output id="masterVal">100%</output>
   </div>
   <button id="updateBtn" class="btn update-btn" hidden></button>
-  <button id="clearColors" data-icon="eraser" class="btn clear-btn" title="Очистити кольори вибраних приладів (або всіх, якщо нічого не вибрано) — Delete / 0"><span id="clearLabel">Очистити все</span></button>
-  <button id="blackout" data-icon="bulbOff" class="btn danger icon-btn" title="Blackout — вимкнути все світло (B)" aria-label="Blackout"></button>
+  <button id="clearColors" data-icon="eraser" class="btn clear-btn" title="Очистити кольори — Delete"><span id="clearLabel">Очистити все</span></button>
+  <button id="blackout" data-icon="bulbOff" class="btn danger icon-btn" title="Вимкнути все світло — B" aria-label="Blackout"></button>
   <button id="openSettings" data-icon="settings" class="btn ghost icon-btn" title="Налаштування" aria-label="Налаштування"></button>
 </header>
 
@@ -124,7 +124,7 @@
 
   <section class="panel monitor-panel" data-zone="monitor">
     <details>
-      <summary>DMX-монітор (512 каналів) <span id="frameCounter" class="muted"></span></summary>
+      <summary>DMX-монітор <span id="frameCounter" class="muted"></span></summary>
       <div id="monitor" class="monitor"></div>
     </details>
   </section>
@@ -146,12 +146,12 @@
     <div class="form">
       <label>Інтерфейс
         <select id="outType">
-          <option value="udmx">uDMX (Anyma та сумісні, USB)</option>
-          <option value="enttec_pro">Enttec DMX USB Pro (і сумісні)</option>
-          <option value="open_dmx">Open DMX / USB-RS485 (FTDI)</option>
-          <option value="artnet">Art-Net (мережа)</option>
-          <option value="sacn">sACN / E1.31 (мережа)</option>
-          <option value="none">Симулятор (без обладнання)</option>
+          <option value="udmx">uDMX</option>
+          <option value="enttec_pro">Enttec DMX USB Pro</option>
+          <option value="open_dmx">Open DMX / USB-RS485</option>
+          <option value="artnet">Art-Net</option>
+          <option value="sacn">sACN / E1.31</option>
+          <option value="none">Симулятор</option>
         </select>
       </label>
       <div data-for="udmx" class="row">
@@ -170,7 +170,7 @@
       <label data-for="artnet sacn">IP-адреса вузла
         <input id="outHost" placeholder="Порожньо — broadcast / multicast">
       </label>
-      <label data-for="artnet sacn">Всесвіт (universe)
+      <label data-for="artnet sacn">Всесвіт
         <input id="outUniverse" type="number" min="0" max="63999" value="0">
       </label>
       <div class="row">
@@ -205,7 +205,7 @@
       <img src="/static/icon.svg" alt="" width="64" height="64">
       <div>
         <h3>SC DMX <span id="aboutVersion"></span></h3>
-        <p class="muted">Керування RGB-прожекторами через USB DMX (uDMX).</p>
+        <p class="muted">Керування RGB-прожекторами.</p>
         <p class="muted">Оновлення: <a id="aboutRepo" href="#" rel="noopener"></a></p>
       </div>
     </div>
@@ -228,7 +228,7 @@
       <button class="btn" id="clearModel" type="button" hidden>Скинути</button>
       <button class="btn" id="openLibrary" type="button" data-icon="grid">Вибрати з бібліотеки</button>
     </div>
-    <label id="addProfileRow">Стандартний профіль (для невідомого приладу) <select id="addProfile"></select></label>
+    <label id="addProfileRow">Стандартний профіль <select id="addProfile"></select></label>
     <p id="addInfo" class="info"></p>
     <div class="grid3">
       <label>Назва <input id="addName" placeholder="Прожектор"></label>
@@ -267,7 +267,6 @@
     <div class="mode-about">
       <div id="modeMaker" class="lib-maker"></div>
       <div id="modeColors" class="lib-colors"></div>
-      <p class="muted">Виберіть режим DMX, який стоїть на самому приладі.</p>
     </div>
   </div>
   <div id="modeList" class="mode-list"></div>
@@ -302,8 +301,8 @@
       <div id="propModelText" class="lib-chosen"></div>
       <button class="btn" id="propModeBtn" type="button">Змінити режим</button>
     </div>
-    <label>Профіль (режим DMX на приладі) <select id="propProfile"></select></label>
-    <label class="check"><input type="checkbox" id="propPresets"> Вбудовані пресети (LED-бар)</label>
+    <label>Профіль <select id="propProfile"></select></label>
+    <label class="check"><input type="checkbox" id="propPresets"> Вбудовані пресети</label>
     <p id="propInfo" class="info"></p>
     <p id="propWarn" class="warn" hidden></p>
     <details id="propTest" class="ch-test">
@@ -315,7 +314,7 @@
       </div>
       <div id="testRows" class="test-rows"></div>
       <div class="row">
-        <input id="testProfName" placeholder="Назва профілю, напр. «Мій бар 8 кан.»">
+        <input id="testProfName" placeholder="Назва профілю">
         <button class="btn" id="testSave" type="button">Зберегти профіль і призначити</button>
       </div>
     </details>
