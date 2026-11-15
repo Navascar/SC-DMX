@@ -104,6 +104,7 @@ function connect() {
   ws.onopen = () => ($("#offline").hidden = true);
   ws.onmessage = (e) => onMessage(JSON.parse(e.data));
   ws.onclose = () => {
+    if (quitting) document.title = "__SCDMX_CLOSE__";
     setOutput({ ok: false, status: "немає з'єднання з сервером" });
     const restarting = updateInfo && updateInfo.status === "restarting";
     $("#offline").hidden = false;
@@ -560,10 +561,6 @@ function bindUpdate() {
   $("#updInstall").onclick = startUpdate;
   $("#checkUpdate").onclick = () => (updateInfo && updateInfo.available && !updateInfo.blocked
     ? ($("#settings").close(), openUpdateDialog()) : send({ cmd: "check_update" }));
-  $("#quitApp").onclick = () => {
-    uiConfirm("Прожектори згаснуть.", { title: "Вимкнути SC DMX?", ok: "Вимкнути", danger: true })
-      .then((ok) => { if (ok) { quitting = true; send({ cmd: "quit" }); } });
-  };
 }
 
 // --------------------------------------------------------------- пресети ---
@@ -1285,6 +1282,17 @@ function generalMenu() {
 
 // Зовнішні посилання відкриваються браузером користувача за замовчуванням (через програму),
 // а не у вікні програми чи в Edge.
+// Закриття вікна програми (хрестик, Alt+F4) — лише після підтвердження.
+// Викликається з вікна Qt; "asked" — питання показано тут, інакше вікно спитає саме.
+window.scdmxRequestClose = () => {
+  if (!ws || ws.readyState !== WebSocket.OPEN || quitting) return "none";
+  if ($("#uiDlg").open) return "asked";
+  hideMenu();
+  uiConfirm("Прожектори згаснуть.", { title: "Закрити SC DMX?", ok: "Закрити", danger: true })
+    .then((ok) => { if (ok) { quitting = true; send({ cmd: "quit" }); } });
+  return "asked";
+};
+
 function bindExternalLinks() {
   const handler = (e) => {
     const a = e.target instanceof Element && e.target.closest("a[href]");

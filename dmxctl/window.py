@@ -13,6 +13,8 @@ from typing import Callable
 
 ICON = Path(__file__).resolve().parent / "static" / "icon.ico"
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
+APP_ID = "SCDMX.Controller"          # власний ідентифікатор для панелі задач Windows
+CLOSE_SIGNAL = "__SCDMX_CLOSE__"     # заголовок сторінки, яким інтерфейс просить закрити вікно
 
 
 def available() -> bool:
@@ -34,6 +36,15 @@ def run_window(url: str, should_close: Callable[[], bool] = lambda: False) -> in
     from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile
     from PySide6.QtWebEngineWidgets import QWebEngineView
     from PySide6.QtWidgets import QApplication, QMainWindow
+
+    if sys.platform == "win32":
+        # Інакше Windows вважає вікно частиною pythonw.exe і показує в панелі задач іконку Python
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
+        except Exception:  # noqa: BLE001
+            pass
+    from PySide6.QtWidgets import QMessageBox
 
     app = QApplication.instance() or QApplication(sys.argv[:1])
     app.setApplicationName("SC DMX")
@@ -75,17 +86,42 @@ def run_window(url: str, should_close: Callable[[], bool] = lambda: False) -> in
     if geometry is None or not win.restoreGeometry(geometry):
         win.resize(1440, 900)
 
+    if ICON.exists():
+        win.setWindowIcon(QIcon(str(ICON)))
+
+    # Закриття — лише після підтвердження: власне вікно інтерфейсу, а якщо інтерфейс
+    # недоступний (немає звʼязку з програмою) — системне вікно Qt.
+    state = {"force": False}
     orig_close = win.closeEvent
+
+    def force_close():
+        state["force"] = True
+        win.close()
+
+    def ask_native():
+        box = QMessageBox(QMessageBox.Icon.Question, "SC DMX", "Закрити SC DMX?\nПрожектори згаснуть.", parent=win)
+        yes = box.addButton("Закрити", QMessageBox.ButtonRole.DestructiveRole)
+        box.addButton("Скасувати", QMessageBox.ButtonRole.RejectRole)
+        box.exec()
+        if box.clickedButton() is yes:
+            force_close()
 
     def close_event(event):
         settings.setValue("window/geometry", win.saveGeometry())
-        orig_close(event)
+        if state["force"]:
+            orig_close(event)
+            return
+        event.ignore()
+        view.page().runJavaScript("window.scdmxRequestClose ? window.scdmxRequestClose() : 'none'", 0,
+                                  lambda result: None if result == "asked" else ask_native())
 
     win.closeEvent = close_event
+    # інтерфейс підтвердив закриття (програму вимкнено) — закриваємо вікно
+    view.titleChanged.connect(lambda t: t == CLOSE_SIGNAL and force_close())
 
     # сервер завершився сам (кнопка «Вимкнути програму») — закриваємо й вікно
     timer = QTimer(win)
-    timer.timeout.connect(lambda: should_close() and win.close())
+    timer.timeout.connect(lambda: should_close() and force_close())
     timer.start(500)
 
     win.show()

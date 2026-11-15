@@ -311,7 +311,7 @@ async def _no_cache(request: web.Request, response: web.StreamResponse) -> None:
 
 async def serve(config_path: str, host: str, port: int, background: bool = False) -> int:
     app = make_app(config_path, background)
-    runner = web.AppRunner(app, access_log=None)
+    runner = web.AppRunner(app, access_log=None, shutdown_timeout=2)
     await runner.setup()
     site = web.TCPSite(runner, host, port)
     await site.start()
@@ -319,6 +319,12 @@ async def serve(config_path: str, host: str, port: int, background: bool = False
     try:
         await app[STOP].wait()
     finally:
+        # спершу самі закриваємо зʼєднання вікон — інакше зупинка чекала б, поки їх закриє клієнт
+        for ws in list(app[SOCKETS]):
+            try:
+                await ws.close(message=b"quit")
+            except Exception:  # noqa: BLE001
+                pass
         await runner.cleanup()
     return app[EXIT]["code"]
 
