@@ -23,6 +23,8 @@ FPS = 40
 UNDO_LIMIT = 100
 UNDO_MERGE_S = 1.0   # серія однакових команд (рух повзунка) — один крок скасування
 NO_UNDO = {"undo", "redo", "raw_set", "raw_clear", "set_output"}
+SCENE_FORMAT = "sc-dmx-scene"    # файл сцени (.scdmx) для перенесення між комп'ютерами
+SCENE_EXT = ".scdmx"
 
 # Статичні кольори за замовчуванням. hex — для RGB-приладів; для приладів
 # з білим каналом використовується hex_w + w (чистіший білий від W-світлодіода).
@@ -72,6 +74,26 @@ def _model(v) -> dict | None:
     return {"m": str(v["m"]), "n": str(v["n"]), "mode": str(v.get("mode", ""))}
 
 
+def _scene_state(vals: dict, segments: int) -> dict:
+    """Стан приладу в сцені з файлу — лише відомі поля з допустимими значеннями."""
+    def b(v, default=0):
+        try:
+            return max(0, min(255, int(v)))
+        except (TypeError, ValueError):
+            return default
+    out = {k: b(vals.get(k), 255 if k == "dimmer" else 0) for k in STATE_KEYS}
+    segs = vals.get("segs")
+    if isinstance(segs, list):
+        segs = [[b(c) for c in s[:3]] if isinstance(s, list) and len(s) >= 3 else None for s in segs[:segments]]
+        out["segs"] = segs if any(segs) else None
+    else:
+        out["segs"] = None
+    preset = vals.get("preset")
+    out["preset"] = preset if isinstance(preset, int) and 1 <= preset <= PRESET_COUNT else None
+    out["speed"] = b(vals.get("speed"), 128)
+    return out
+
+
 def _byte(v) -> int:
     v = int(v)
     if not 0 <= v <= 255:
@@ -107,6 +129,7 @@ class Engine:
         self._redo: list[tuple[str, dict]] = []
         self._undo_key = None
         self._undo_t = 0.0
+        self._notice: str | None = None   # повідомлення для клієнта, що надіслав команду
         self.load()
         self.output = create_output(self.output_cfg)
 
@@ -618,6 +641,130 @@ class Engine:
 
     def cmd_delete_scene(self, m):
         self.scenes.pop(m["name"], None)
+
+    # ------------------------------------------------- сцена у файлі ----
+    def pop_notice(self) -> str | None:
+        note, self._notice = self._notice, None
+        return note
+
+    def export_scene(self, name: str) -> dict:
+        """Сцена як самодостатній файл: стан + опис приладів (адреса, канали, модель)."""
+        from . import __version__
+        scene = self.scenes[name]
+        by_id = {f.id: f for f in self.fixtures}
+        fixtures = []
+        for fid, vals in scene["fixtures"].items():
+            fx = by_id.get(fid)
+            item = {"id": fid, "state": vals}
+            if fx is not None:
+                item.update(name=fx.name, address=fx.address, profile=fx.profile,
+                            channels=list(self.profiles.get(fx.profile, [])), model=fx.model)
+            fixtures.append(item)
+        return {"format": SCENE_FORMAT, "version": 1, "app": __version__, "name": name,
+                "fixtures": fixtures, "effect": scene.get("effect")}
+
+    def cmd_import_scene(self, m):
+        """Сцена з файлу іншого комп'ютера.
+
+        Прилади файлу зіставляються з тутешніми: за id, далі за адресою й каналами, далі за
+        назвою й каналами. Прилад, якого тут немає, додається на ту саму адресу, якщо вона вільна.
+        """
+        data = m.get("data")
+        if not isinstance(data, dict) or data.get("format") != SCENE_FORMAT:
+            raise ValueError("це не файл сцени SC DMX")
+        if not isinstance(data.get("fixtures"), list):
+            raise ValueError("файл сцени пошкоджено")
+        used: set[str] = set()
+        mapping: dict[str, str] = {}
+        added = skipped = 0
+
+        def free(fx_id: str) -> Fixture | None:
+            return next((f for f in self.fixtures if f.id == fx_id and f.id not in used), None)
+
+        def same_ch(f: Fixture, ch) -> bool:
+            return ch is None or self.profiles.get(f.profile) == ch
+
+        items = [i for i in data["fixtures"] if isinstance(i, dict) and isinstance(i.get("state"), dict)]
+        pending = []
+        for it in items:
+            ch = it.get("channels")
+            ch = [str(c) for c in ch] if isinstance(ch, list) and ch else None
+            it["_ch"] = ch
+            f = free(str(it.get("id", "")))
+            if f is not None and not same_ch(f, ch):
+                f = None
+            if f is None and ch:
+                f = next((x for x in self.fixtures if x.id not in used and x.address == it.get("address")
+                          and same_ch(x, ch)), None)
+            if f is None and ch and it.get("name"):
+                f = next((x for x in self.fixtures if x.id not in used and x.name == it.get("name")
+                          and same_ch(x, ch)), None)
+            if f is None:
+                pending.append(it)
+                continue
+            used.add(f.id)
+            mapping[str(it["id"])] = f.id
+        for it in pending:   # приладів немає — додаємо на їхні адреси, якщо ті вільні
+            ch = it["_ch"]
+            try:
+                address = int(it.get("address"))
+                if ch is None:
+                    raise ValueError
+                validate_profile(ch)
+            except (TypeError, ValueError):
+                skipped += 1
+                continue
+            end = address + len(ch) - 1
+            busy = any(address <= f.address + len(self.profiles.get(f.profile, [])) - 1 and f.address <= end
+                       for f in self.fixtures)
+            if address < 1 or end > DMX_CHANNELS or busy:
+                skipped += 1
+                continue
+            profile, model = self._import_profile(str(it.get("profile") or ""), ch, _model(it.get("model")))
+            fx = Fixture(id=uuid.uuid4().hex[:8], name=str(it.get("name") or "Прожектор")[:80],
+                         address=address, profile=profile, model=model)
+            self.fixtures.append(fx)
+            used.add(fx.id)
+            mapping[str(it["id"])] = fx.id
+            added += 1
+        if not mapping:
+            raise ValueError("жоден прилад зі сцени не вдалося зіставити: адреси зайняті іншими приладами")
+
+        states = {}
+        for it in items:
+            fid = mapping.get(str(it.get("id")))
+            if fid:
+                states[fid] = _scene_state(it["state"], self._segments(self._fx(fid)))
+        effect = data.get("effect")
+        if isinstance(effect, dict) and effect.get("type") in EFFECTS:
+            effect = {**effect, "ids": [mapping[i] for i in effect.get("ids", []) if i in mapping]}
+        else:
+            effect = None
+        name = str(m.get("name") or data.get("name") or "Сцена").strip()[:80] or "Сцена"
+        base, k = name, 2
+        while name in self.scenes:
+            name, k = f"{base} ({k})", k + 1
+        self.scenes[name] = {"fixtures": states, "effect": effect}
+        parts = [f"зіставлено приладів: {len(mapping) - added}"]
+        if added:
+            parts.append(f"додано: {added}")
+        if skipped:
+            parts.append(f"пропущено (адреса зайнята): {skipped}")
+        self._notice = f"Сцену «{name}» відкрито з файлу · " + ", ".join(parts)
+
+    def _import_profile(self, name: str, channels: list[str], model: dict | None) -> tuple[str, dict | None]:
+        """Профіль для приладу з файлу сцени: наявний з тими самими каналами або новий."""
+        if model:
+            return self._profile_from({"profile": name, "channels": channels, "model": model})
+        for n, ch in self.profiles.items():   # стандартний або власний профіль з такими ж каналами
+            if ch == channels and not self._is_device(n):
+                return n, None
+        name = name or f"Профіль ({len(channels)} кан.)"
+        base, k = name, 2
+        while name in self.profiles:
+            name, k = f"{base} ({k})", k + 1
+        self.profiles[name] = channels
+        return name, None
 
     def cmd_set_output(self, m):
         cfg = {k: v for k, v in m.items() if k != "cmd"}

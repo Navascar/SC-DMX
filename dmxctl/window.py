@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -44,7 +45,7 @@ def run_window(url: str, should_close: Callable[[], bool] = lambda: False) -> in
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
         except Exception:  # noqa: BLE001
             pass
-    from PySide6.QtWidgets import QMessageBox
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
 
     app = QApplication.instance() or QApplication(sys.argv[:1])
     app.setApplicationName("SC DMX")
@@ -77,6 +78,31 @@ def run_window(url: str, should_close: Callable[[], bool] = lambda: False) -> in
     view.setPage(Page(QWebEngineProfile.defaultProfile(), view))
     view.load(QUrl(url))
     win.setCentralWidget(view)
+
+    # Файли, які віддає програма (напр. сцена .scdmx), — через діалог «Зберегти як»
+    def on_download(req):
+        name = req.downloadFileName() or "scene.scdmx"
+        last = settings.value("files/dir") or str(Path.home() / "Documents")
+        ext = Path(name).suffix
+        flt = f"Сцена SC DMX (*{ext});;Усі файли (*)" if ext == ".scdmx" else "Усі файли (*)"
+        path, _ = QFileDialog.getSaveFileName(win, "Зберегти файл", str(Path(last) / name), flt)
+        if not path:
+            req.cancel()
+            return
+        target = Path(path)
+        settings.setValue("files/dir", str(target.parent))
+        req.setDownloadDirectory(str(target.parent))
+        req.setDownloadFileName(target.name)
+
+        def done():
+            if req.isFinished():
+                ok = req.state() == req.DownloadState.DownloadCompleted
+                msg = f"Файл збережено: {target.name}" if ok else "Не вдалося зберегти файл"
+                view.page().runJavaScript(f"window.scdmxToast && window.scdmxToast({json.dumps(msg)}, {str(ok).lower()})")
+        req.isFinishedChanged.connect(done)
+        req.accept()
+
+    view.page().profile().downloadRequested.connect(on_download)
 
     QShortcut(QKeySequence("F5"), win, activated=view.reload)
     QShortcut(QKeySequence("Ctrl+0"), win, activated=lambda: view.setZoomFactor(1.0))

@@ -14,7 +14,7 @@ from pathlib import Path
 from aiohttp import WSMsgType, web
 
 from . import APP_NAME, __version__, library, updater
-from .engine import Engine
+from .engine import SCENE_EXT, Engine
 from .outputs import _usb_backends, find_udmx_devices, list_serial_ports
 
 log = logging.getLogger(__name__)
@@ -86,6 +86,9 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
                 await ws.send_json({"type": "ports", "ports": list_serial_ports()})
                 continue
             engine.handle(data)
+            note = engine.pop_notice()
+            if note:
+                await ws.send_json({"type": "notice", "message": note})
         except (ValueError, KeyError, TypeError) as exc:
             await ws.send_json({"type": "error", "message": str(exc).strip("'\"")})
             continue
@@ -295,6 +298,21 @@ async def library_api(request: web.Request) -> web.Response:
     return resp
 
 
+async def scene_file(request: web.Request) -> web.Response:
+    """Сцена як файл .scdmx — для перенесення на інший комп'ютер."""
+    from urllib.parse import quote
+    name = request.query.get("name", "")
+    try:
+        data = request.app[ENGINE].export_scene(name)
+    except KeyError:
+        raise web.HTTPNotFound(text="сцену не знайдено")
+    fname = "".join("_" if c in '<>:"/\\|?*' or ord(c) < 32 else c for c in name).strip(" .") or "scene"
+    fname += SCENE_EXT
+    body = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
+    return web.Response(body=body, content_type="application/json", headers={
+        "Content-Disposition": f"attachment; filename=\"scene{SCENE_EXT}\"; filename*=UTF-8''{quote(fname)}"})
+
+
 async def index(_request: web.Request) -> web.FileResponse:
     return web.FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-cache"})
 
@@ -312,6 +330,7 @@ def make_app(config_path: str, background: bool = False) -> web.Application:
     app.router.add_get("/", index)
     app.router.add_get("/ws", ws_handler)
     app.router.add_get("/api/library", library_api)
+    app.router.add_get("/api/scene", scene_file)
     app.router.add_static("/static", STATIC)
     app.on_response_prepare.append(_no_cache)
     app.on_startup.append(on_startup)

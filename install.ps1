@@ -1,5 +1,6 @@
 ﻿# SC DMX — інсталятор для Windows.
 #
+# Найпростіше: SC-DMX-Setup.exe зі сторінки релізів (він сам запускає цей скрипт).
 # Запуск з розпакованого архіву:  install.bat
 # Або одним рядком у PowerShell (завантажить останню версію з GitHub):
 #   $s = irm https://raw.githubusercontent.com/Navascar/SC-DMX/main/install.ps1; iex $s.TrimStart([char]0xFEFF)
@@ -7,6 +8,10 @@
 # Що робить: копіює програму в %LOCALAPPDATA%\SC-DMX, створює окреме середовище Python (.venv),
 # встановлює залежності, створює ярлики «SC DMX» на робочому столі та в меню «Пуск» і запускає програму.
 # Повторний запуск безпечний: налаштування (config.json) зберігаються.
+#
+# -NoLaunch — не запускати програму наприкінці (так робить SC-DMX-Setup.exe: запуск — з його останньої сторінки).
+
+param([switch]$NoLaunch)
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -78,7 +83,7 @@ if ($PSScriptRoot -and (Test-Path (Join-Path $PSScriptRoot 'dmxctl\__init__.py')
 # Якщо програма запущена — просимо її вимкнутися, щоб оновити файли
 try {
     $null = Invoke-WebRequest 'http://127.0.0.1:8080/' -UseBasicParsing -TimeoutSec 2
-    Write-Host 'SC DMX зараз запущено. Вимкніть програму (Налаштування → Про програму → Вимкнути) і натисніть Enter.' -ForegroundColor Yellow
+    Write-Host 'SC DMX зараз відкрито. Закрийте вікно програми й натисніть Enter.' -ForegroundColor Yellow
     Read-Host | Out-Null
 } catch { }
 
@@ -86,7 +91,7 @@ try {
 Step "Копіювання в $AppDir"
 New-Item -ItemType Directory -Force $AppDir | Out-Null
 if ((Resolve-Path $Src).Path.TrimEnd('\') -ne (Resolve-Path $AppDir).Path.TrimEnd('\')) {
-    $keep = @('config.json', '.venv', 'sc-dmx.log', '.git')
+    $keep = @('config.json', '.venv', 'sc-dmx.log', '.git', 'Uninstall.exe')
     Get-ChildItem $AppDir -Force | Where-Object { $keep -notcontains $_.Name } | Remove-Item -Recurse -Force
     Get-ChildItem $Src -Force | Where-Object { @('.venv', '.git', 'sc-dmx.log') -notcontains $_.Name } | ForEach-Object {
         if ($_.Name -eq 'config.json') {
@@ -147,6 +152,10 @@ uDMX поки не працює. Якщо адаптер підключено, �
 '@ -ForegroundColor Yellow
 }
 
+if ($NoLaunch) {
+    Step 'Готово!'
+    exit 0
+}
 Step 'Готово! Запускаю SC DMX'
 Write-Host 'Надалі запускайте програму ярликом «SC DMX» на робочому столі. Оновлення програма пропонує сама.'
 Start-Process -FilePath $Pyw -ArgumentList '-m dmxctl --open' -WorkingDirectory $AppDir

@@ -37,6 +37,7 @@ const ICONS = {
   arrowUp: "M12 19V5M5 12l7-7 7 7",
   arrowDown: "M12 5v14M19 12l-7 7-7-7",
   download: "M12 3v12M7 10l5 5 5-5M5 21h14",
+  upload: "M12 15V3M7 8l5-5 5 5M5 21h14",
   wrench: "M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z",
   bolt: "M13 2L4 14h7l-1 8 9-12h-7z",
   power: "M12 2v10M18.4 6.6a9 9 0 1 1-12.8 0",
@@ -171,6 +172,8 @@ function onMessage(m) {
     quitting = true;
   } else if (m.type === "open_here") {
     window.open(m.url, "_blank", "noopener");  // інший пристрій у мережі — відкриваємо в ньому самому
+  } else if (m.type === "notice") {
+    toast(m.message, true);
   } else if (m.type === "error") {
     pendingUndo = null;
     if (addPending !== null) addPending = null;
@@ -779,6 +782,7 @@ function renderScenes() {
     const li = el("li", {},
       Object.assign(ibtn("play", name, { className: "btn" }), {
         onclick: () => send({ cmd: "recall_scene", name, fade: +$("#sceneFade").value || 0 }) }),
+      Object.assign(ibtn("download", "", { title: "Зберегти сцену у файл" }), { onclick: () => saveSceneFile(name) }),
       Object.assign(ibtn("trash", "", { title: "Видалити сцену" }), {
         onclick: () => uiConfirm("", { title: `Видалити сцену «${name}»?`, ok: "Видалити", danger: true })
           .then((ok) => ok && send({ cmd: "delete_scene", name })) }));
@@ -787,7 +791,40 @@ function renderScenes() {
   }));
 }
 
+// сцена у файлі .scdmx — щоб перенести її на інший комп'ютер
+async function saveSceneFile(name) {
+  let blob;
+  try {
+    const r = await fetch(`/api/scene?name=${encodeURIComponent(name)}`);
+    if (!r.ok) throw new Error();
+    blob = await r.blob();
+  } catch { return toast("Не вдалося підготувати файл сцени"); }
+  const file = (name.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_").replace(/^[ .]+|[ .]+$/g, "") || "scene") + ".scdmx";
+  const url = URL.createObjectURL(blob);
+  const a = el("a", { href: url, download: file });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+function openSceneFile() {
+  $("#sceneFile").value = "";
+  $("#sceneFile").click();
+}
+
+async function importSceneFile(file) {
+  let data;
+  try { data = JSON.parse(await file.text()); } catch { return toast("Це не файл сцени SC DMX"); }
+  send({ cmd: "import_scene", data });
+}
+
 function bindScenes() {
+  $("#sceneOpen").onclick = openSceneFile;
+  $("#sceneFile").addEventListener("change", () => {
+    const file = $("#sceneFile").files[0];
+    if (file) importSceneFile(file);
+  });
   $("#sceneSave").onclick = () => {
     const name = $("#sceneName").value.trim();
     if (!name) return toast("Вкажіть назву сцени");
@@ -1070,7 +1107,7 @@ function bindProps() {
 // пункти меню описано символами; показуються вони іконками єдиного набору
 const GLYPH_ICON = {
   "⌫": "eraser", "＋": "plus", "▶": "play", "⧉": "copy", "✕": "trash", "☰": "selectAll", "■": "stop",
-  "📋": "clipboard", "⟳": "refresh", "✎": "edit", "⚙": "settings", "★": "star", "○": "circle", "⬆": "download",
+  "📋": "clipboard", "⟳": "refresh", "✎": "edit", "⚙": "settings", "★": "star", "○": "circle", "⬆": "download", "⇩": "download", "⇧": "upload",
   "✂": "scissors", "⚡": "bolt", "☀": "sun", "◐": "bulbOff", "●": "dot", "◎": "circle", "▭": "selectAll",
   "▦": "grid", "▤": "layers", "≡": "list", "⇄": "swap", "↺": "reset", "↷": "redo", "↶": "undo", "½": "half",
 };
@@ -1240,6 +1277,7 @@ function sceneMenu(name) {
     name && { icon: "⟳", label: "Перезаписати поточним станом", action: () =>
         uiConfirm("", { title: `Перезаписати сцену «${name}» поточними кольорами?`, ok: "Перезаписати" })
           .then((ok) => ok && send({ cmd: "save_scene", name, with_effect: $("#sceneWithEffect").checked })) },
+    name && { icon: "⇩", label: "Зберегти у файл…", action: () => saveSceneFile(name) },
     name && { icon: "✕", label: "Видалити сцену", danger: true, action: () =>
         uiConfirm("", { title: `Видалити сцену «${name}»?`, ok: "Видалити", danger: true })
           .then((ok) => ok && send({ cmd: "delete_scene", name })) },
@@ -1249,6 +1287,7 @@ function sceneMenu(name) {
           if (n && n.trim()) send({ cmd: "save_scene", name: n.trim(), with_effect: $("#sceneWithEffect").checked });
         });
       } },
+    { icon: "⇧", label: "Відкрити сцену з файлу…", action: openSceneFile },
   ];
 }
 
@@ -1295,7 +1334,7 @@ const UNDO_NAMES = {
   set_color: "зміну кольору", static_color: "статичний колір", clear: "очищення", preset: "пресет",
   set_master: "майстер", blackout: "Blackout", set_effect: "зміну ефекту", add_fixture: "додавання приладу",
   update_fixture: "зміну приладу", delete_fixture: "видалення приладу", move_fixture: "переміщення приладу",
-  save_scene: "збереження сцени", recall_scene: "виклик сцени", delete_scene: "видалення сцени",
+  save_scene: "збереження сцени", recall_scene: "виклик сцени", delete_scene: "видалення сцени", import_scene: "відкриття сцени з файлу",
   save_profile: "збереження профілю", delete_profile: "видалення профілю", add_static_color: "новий колір",
   delete_static_color: "видалення кольору", rename_static_color: "перейменування кольору",
   reset_static_colors: "скидання кольорів",
@@ -1330,6 +1369,9 @@ function generalMenu() {
 // а не у вікні програми чи в Edge.
 // Закриття вікна програми (хрестик, Alt+F4) — лише після підтвердження.
 // Викликається з вікна Qt; "asked" — питання показано тут, інакше вікно спитає саме.
+// сповіщення від вікна програми (напр. «Файл збережено»)
+window.scdmxToast = (text, ok) => toast(text, ok);
+
 window.scdmxRequestClose = () => {
   if (!ws || ws.readyState !== WebSocket.OPEN || quitting) return "none";
   if ($("#uiDlg").open) return "asked";

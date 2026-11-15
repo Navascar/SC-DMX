@@ -507,3 +507,90 @@ def test_old_library_profiles_migrate_to_devices(tmp_path):
     assert name not in menu and WASH24 not in menu and "Мій PAR" in menu   # власні профілі лишаються в меню
     assert eng.fixtures[0].model["n"] == fx["n"] and eng.fixtures[1].model["n"] == "WASH 243"
     assert [r["n"] for r in eng.recent_models] == [fx["n"], "WASH 243"]
+
+
+def _scene_pc(tmp_path, name):
+    eng = Engine(tmp_path / f"{name}.json")
+    eng.fixtures.clear()
+    return eng
+
+
+def test_scene_file_moves_to_other_computer(tmp_path):
+    import json
+    from dmxctl import library
+    a = _scene_pc(tmp_path, "a")
+    a.handle({"cmd": "add_fixture", "profile": "RGBW (4 кан.)", "address": 1, "name": "Ліва"})
+    a.handle({"cmd": "add_fixture", "profile": "Dim+RGB (4 кан.)", "address": 10, "name": "Права"})
+    wash = library.find("Free Color", "WASH 243")
+    mode = wash["modes"][0]
+    a.handle({"cmd": "add_fixture", "profile": mode[2], "channels": mode[1], "address": 20, "name": "Бар",
+              "model": {"m": "Free Color", "n": "WASH 243", "mode": mode[0]}})
+    left, right, bar = a.fixtures
+    a.handle({"cmd": "set_color", "ids": [left.id], "r": 255, "g": 10, "b": 0, "w": 40})
+    a.handle({"cmd": "set_color", "ids": [f"{bar.id}#2"], "r": 0, "g": 0, "b": 200})
+    a.handle({"cmd": "save_scene", "name": "Вечір"})
+    data = json.loads(json.dumps(a.export_scene("Вечір")))   # як через файл
+
+    # інший комп'ютер: ті самі прожектори на тих самих адресах, але свої id; бару немає
+    b = _scene_pc(tmp_path, "b")
+    b.handle({"cmd": "add_fixture", "profile": "RGBW (4 кан.)", "address": 1, "name": "L"})
+    b.handle({"cmd": "add_fixture", "profile": "Dim+RGB (4 кан.)", "address": 10, "name": "R"})
+    b.handle({"cmd": "import_scene", "data": data})
+    note = b.pop_notice()
+    assert "Вечір" in note and "додано: 1" in note
+    assert len(b.fixtures) == 3
+    new_bar = b.fixtures[2]
+    assert new_bar.address == 20 and new_bar.model["n"] == "WASH 243"
+    assert new_bar.profile not in b.menu_profiles()           # профіль моделі — у приладу
+    b.handle({"cmd": "recall_scene", "name": "Вечір"})
+    f = b.render(0)
+    assert list(f[0:4]) == [255, 10, 0, 40]                   # ліва — за адресою
+    assert new_bar.segs[2] == [0, 0, 200]
+    # повторне відкриття не перезаписує сцену і не дублює прилади
+    b.handle({"cmd": "import_scene", "data": data})
+    assert "Вечір (2)" in b.scenes and len(b.fixtures) == 3
+    # скасування повертає все як було
+    b.handle({"cmd": "undo"})
+    assert "Вечір (2)" not in b.scenes
+
+
+def test_scene_file_busy_addresses_and_bad_file(tmp_path):
+    a = _scene_pc(tmp_path, "a")
+    a.handle({"cmd": "add_fixture", "profile": "RGB (3 кан.)", "address": 1, "name": "PAR"})
+    a.handle({"cmd": "save_scene", "name": "S"})
+    data = a.export_scene("S")
+    b = _scene_pc(tmp_path, "b")
+    b.handle({"cmd": "add_fixture", "profile": "RGBW (4 кан.)", "address": 1, "name": "Інший"})
+    with pytest.raises(ValueError, match="зіставити"):
+        b.handle({"cmd": "import_scene", "data": data})
+    assert "S" not in b.scenes and len(b.fixtures) == 1
+    with pytest.raises(ValueError, match="не файл сцени"):
+        b.handle({"cmd": "import_scene", "data": {"hello": 1}})
+    # власний профіль з іншого комп'ютера приходить разом із приладом
+    a.handle({"cmd": "save_profile", "name": "Мій PAR", "channels": ["dim", "r", "g", "b", "zero"]})
+    a.handle({"cmd": "add_fixture", "profile": "Мій PAR", "address": 100})
+    a.handle({"cmd": "save_scene", "name": "S2"})
+    b.handle({"cmd": "import_scene", "data": a.export_scene("S2")})
+    added = [f for f in b.fixtures if f.address == 100][0]
+    assert b.profiles[added.profile] == ["dim", "r", "g", "b", "zero"] and added.profile in b.menu_profiles()
+
+
+def test_scene_file_http(tmp_path):
+    import asyncio
+    from aiohttp.test_utils import TestClient, TestServer
+    from dmxctl.server import ENGINE, make_app
+
+    async def run():
+        app = make_app(str(tmp_path / "cfg.json"), background=True)
+        eng = app[ENGINE]
+        eng.fixtures.clear()
+        eng.handle({"cmd": "add_fixture", "profile": "RGB (3 кан.)", "address": 1})
+        eng.handle({"cmd": "save_scene", "name": "Зелений / сад"})
+        async with TestClient(TestServer(app)) as c:
+            r = await c.get("/api/scene", params={"name": "Зелений / сад"})
+            assert r.status == 200
+            assert "filename*=UTF-8''" in r.headers["Content-Disposition"]
+            assert "%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%B8%D0%B9%20_%20%D1%81%D0%B0%D0%B4.scdmx" in r.headers["Content-Disposition"]
+            assert (await r.json())["format"] == "sc-dmx-scene"
+            assert (await c.get("/api/scene", params={"name": "нема"})).status == 404
+    asyncio.run(run())

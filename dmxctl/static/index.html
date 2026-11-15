@@ -78,6 +78,10 @@
       </div>
       <label class="check"><input type="checkbox" id="sceneWithEffect"> Зберегти разом з ефектом</label>
       <label>Час переходу, с <input id="sceneFade" type="number" min="0" max="60" step="0.5" value="1"></label>
+      <div class="row">
+        <button class="btn small" id="sceneOpen" type="button" data-icon="upload">Відкрити з файлу</button>
+        <input id="sceneFile" type="file" accept=".scdmx,application/json" hidden>
+      </div>
       <ul id="sceneList" class="scene-list">
         <li class="skel line"></li><li class="skel line"></li>
       </ul>

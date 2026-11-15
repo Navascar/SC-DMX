@@ -1,5 +1,6 @@
 # Тести на кожен push; якщо версія в dmxctl/__init__.py нова — створюється реліз.
 # Програма SC DMX бачить новий реліз і пропонує користувачу оновитися.
+# До релізу додаються SC-DMX-Setup.exe (інсталятор) і SC-DMX.zip (архів, з нього оновлюється програма).
 name: Tests & Release
 
 on:
@@ -39,6 +40,12 @@ jobs:
       - name: Архів
         if: steps.ver.outputs.exists == 'false'
         run: git archive --format=zip --prefix=SC-DMX/ -o SC-DMX.zip HEAD
+      - name: Інсталятор (SC-DMX-Setup.exe)
+        if: steps.ver.outputs.exists == 'false'
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q nsis
+          mkdir -p build/app && git archive HEAD | tar -x -C build/app
+          makensis -V2 -DVERSION=${{ steps.ver.outputs.version }} -DSRC="$PWD/build/app" -DOUTFILE="$PWD/SC-DMX-Setup.exe" installer/sc-dmx.nsi
       - name: Реліз
         if: steps.ver.outputs.exists == 'false'
         env:
@@ -46,5 +53,5 @@ jobs:
         run: |
           NOTES=$(awk -v v="## ${{ steps.ver.outputs.version }}" '$0==v{f=1;next} /^## /{f=0} f' CHANGELOG.md)
           [ -z "$NOTES" ] && NOTES="SC DMX ${{ steps.ver.outputs.version }}"
-          gh release create "v${{ steps.ver.outputs.version }}" SC-DMX.zip \
+          gh release create "v${{ steps.ver.outputs.version }}" SC-DMX-Setup.exe SC-DMX.zip \
             --title "SC DMX ${{ steps.ver.outputs.version }}" --notes "$NOTES"

@@ -28,7 +28,7 @@ RESTART_CODE = 42
 API_URL = os.environ.get("SC_DMX_UPDATE_API", f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest")
 ASSET_NAME = "SC-DMX.zip"
 # Що зберігається між версіями
-KEEP = {"config.json", "config.tmp", ".venv", "venv", ".git", "sc-dmx.log", ".update-backup"}
+KEEP = {"config.json", "config.tmp", ".venv", "venv", ".git", "sc-dmx.log", ".update-backup", "Uninstall.exe"}
 
 
 def parse_version(v: str) -> tuple[int, ...]:
