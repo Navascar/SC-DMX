@@ -1,0 +1,50 @@
+# Тести на кожен push; якщо версія в dmxctl/__init__.py нова — створюється реліз.
+# Програма SC DMX бачить новий реліз і пропонує користувачу оновитися.
+name: Tests & Release
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt pytest
+      - run: python -m pytest -q
+
+  release:
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Версія
+        id: ver
+        run: |
+          VER=$(python -c "import re;print(re.search(r'__version__ = \"(.+?)\"', open('dmxctl/__init__.py').read()).group(1))")
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          if git rev-parse "v$VER" >/dev/null 2>&1; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
+      - name: Архів
+        if: steps.ver.outputs.exists == 'false'
+        run: git archive --format=zip --prefix=SC-DMX/ -o SC-DMX.zip HEAD
+      - name: Реліз
+        if: steps.ver.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NOTES=$(awk -v v="## ${{ steps.ver.outputs.version }}" '$0==v{f=1;next} /^## /{f=0} f' CHANGELOG.md)
+          [ -z "$NOTES" ] && NOTES="SC DMX ${{ steps.ver.outputs.version }}"
+          gh release create "v${{ steps.ver.outputs.version }}" SC-DMX.zip \
+            --title "SC DMX ${{ steps.ver.outputs.version }}" --notes "$NOTES"

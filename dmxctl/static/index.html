@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SC DMX</title>
+  <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <h1>SC&nbsp;DMX</h1>
+  <button id="outputPill" class="pill" title="Налаштування виходу">
+    <span class="dot"></span><span id="outputText">з'єднання…</span>
+  </button>
+  <div class="master">
+    <label for="master">Майстер</label>
+    <input id="master" type="range" min="0" max="255" value="255">
+    <output id="masterVal">100%</output>
+  </div>
+  <button id="blackout" class="btn danger">BLACKOUT</button>
+  <button id="openSettings" class="btn ghost" title="Налаштування">⚙ Налаштування</button>
+</header>
+
+<div id="updateBanner" class="update-banner" hidden>
+  <span id="updateText"></span>
+  <button class="btn small ghost" id="updateNotesBtn">Що нового</button>
+  <button class="btn small primary" id="updateNow">Оновити зараз</button>
+  <button class="btn small ghost" id="updateLater" title="Нагадати пізніше">✕</button>
+</div>
+<div id="offline" class="offline" hidden>
+  <div><b>Немає зв'язку з програмою</b><br><span id="offlineText">Підключення…</span></div>
+</div>
+
+<main class="layout">
+  <section class="panel fixtures-panel">
+    <div class="panel-head">
+      <h2>Прилади</h2>
+      <div class="actions">
+        <button class="btn small" id="selAll">Усі</button>
+        <button class="btn small" id="selNone">Жодного</button>
+        <button class="btn small" id="selInvert">Інверсія</button>
+      </div>
+    </div>
+    <div id="fixtureGrid" class="fixture-grid"></div>
+    <p class="hint">Клік — вибір приладу. Можна вибрати кілька.</p>
+  </section>
+
+  <section class="panel color-panel">
+    <div class="panel-head">
+      <h2>Колір</h2>
+      <span id="selInfo" class="muted">нічого не вибрано</span>
+    </div>
+    <div class="picker-row">
+      <canvas id="wheel" width="220" height="220" aria-label="Колірне коло"></canvas>
+      <div class="swatches" id="swatches"></div>
+    </div>
+    <div class="sliders" id="sliders"></div>
+  </section>
+
+  <section class="panel side-panel">
+    <div class="panel-head">
+      <h2>Статичні кольори</h2>
+      <span id="staticTarget" class="muted">для всіх приладів</span>
+    </div>
+    <div id="staticGrid" class="static-grid"></div>
+    <div class="row static-actions">
+      <button class="btn small" id="staticAdd" title="Зберегти колір першого вибраного приладу">＋ Зберегти поточний</button>
+      <button class="btn small" id="staticEdit">Редагувати</button>
+      <button class="btn small" id="staticReset" hidden>Скинути до стандартних</button>
+    </div>
+    <p class="hint">Клік заливає кольором вибрані прилади (або всі, якщо нічого не вибрано) і зупиняє на них ефект.</p>
+
+    <div class="panel-head"><h2>Ефекти</h2><span id="effectState" class="muted"></span></div>
+    <div class="form">
+      <label>Ефект <select id="effType"></select></label>
+      <label>Швидкість <input id="effSpeed" type="range" min="0" max="100" value="40"><output id="effSpeedVal"></output></label>
+      <label>Розкид фази <input id="effSpread" type="range" min="0" max="100" value="100"><output id="effSpreadVal"></output></label>
+      <div class="palette-row">
+        <span>Палітра</span>
+        <div id="effColors" class="eff-colors"></div>
+        <button class="btn small" id="effAddColor" title="Додати поточний колір">＋</button>
+      </div>
+      <p class="hint">Порожня палітра — ефект бере власні кольори приладів (для пульсації, стробу, біжучого вогню).</p>
+      <div class="row">
+        <button class="btn primary" id="effApply">Запустити на вибраних</button>
+        <button class="btn" id="effStop">Зупинити</button>
+      </div>
+    </div>
+
+    <div class="panel-head"><h2>Сцени</h2></div>
+    <div class="form">
+      <div class="row">
+        <input id="sceneName" placeholder="Назва сцени">
+        <button class="btn primary" id="sceneSave">Зберегти</button>
+      </div>
+      <label class="check"><input type="checkbox" id="sceneWithEffect"> зберегти разом з ефектом</label>
+      <label>Час переходу, с <input id="sceneFade" type="number" min="0" max="60" step="0.5" value="1"></label>
+      <ul id="sceneList" class="scene-list"></ul>
+    </div>
+  </section>
+
+  <section class="panel monitor-panel">
+    <details>
+      <summary>DMX-монітор (512 каналів) <span id="frameCounter" class="muted"></span></summary>
+      <div id="monitor" class="monitor"></div>
+    </details>
+  </section>
+</main>
+
+<dialog id="settings">
+  <form method="dialog" class="dialog-head">
+    <h2>Налаштування</h2>
+    <button class="btn ghost" value="close">✕</button>
+  </form>
+  <nav class="tabs">
+    <button data-tab="tabOutput" class="active">DMX-вихід</button>
+    <button data-tab="tabPatch">Патч приладів</button>
+    <button data-tab="tabProfiles">Профілі</button>
+    <button data-tab="tabAbout">Про програму</button>
+  </nav>
+
+  <div id="tabOutput" class="tab active">
+    <div class="form">
+      <label>Інтерфейс
+        <select id="outType">
+          <option value="udmx">uDMX (Anyma та сумісні, USB)</option>
+          <option value="enttec_pro">Enttec DMX USB Pro (і сумісні)</option>
+          <option value="open_dmx">Open DMX / USB-RS485 (FTDI)</option>
+          <option value="artnet">Art-Net (мережа)</option>
+          <option value="sacn">sACN / E1.31 (мережа)</option>
+          <option value="none">Симулятор (без обладнання)</option>
+        </select>
+      </label>
+      <div data-for="udmx" class="row">
+        <label class="grow">Пристрій
+          <select id="udmxIndex"><option value="0">перший знайдений uDMX</option></select>
+        </label>
+        <button class="btn" id="findUdmx" type="button">Знайти</button>
+      </div>
+      <p class="hint" data-for="udmx">uDMX працює через libusb, а не через COM-порт. У Windows один раз встановіть драйвер <b>WinUSB</b> програмою Zadig (інструкція в README). Перевірка з консолі: <code>python -m dmxctl --check</code></p>
+      <div data-for="enttec_pro open_dmx" class="row">
+        <label class="grow">Послідовний порт
+          <input id="outPort" list="portList" placeholder="/dev/ttyUSB0 або COM3">
+          <datalist id="portList"></datalist>
+        </label>
+        <button class="btn" id="refreshPorts" type="button">Оновити</button>
+      </div>
+      <label data-for="artnet sacn">IP-адреса вузла
+        <input id="outHost" placeholder="порожньо — broadcast / multicast">
+      </label>
+      <label data-for="artnet sacn">Всесвіт (universe)
+        <input id="outUniverse" type="number" min="0" max="63999" value="0">
+      </label>
+      <p class="hint" data-for="artnet">Art-Net: всесвіт 0..32767 (Net·SubNet·Universe), порт 6454.</p>
+      <p class="hint" data-for="sacn">sACN: всесвіт 1..63999. Без IP пакети йдуть на multicast 239.255.x.y.</p>
+      <p class="hint" data-for="open_dmx">Open DMX потребує точних таймінгів — якщо прилади мерехтять, краще використати DMX USB Pro або Art-Net.</p>
+      <div class="row">
+        <button class="btn primary" id="outApply" type="button">Застосувати</button>
+        <span id="outStatus" class="muted"></span>
+      </div>
+    </div>
+  </div>
+
+  <div id="tabPatch" class="tab">
+    <table class="patch">
+      <thead><tr><th>Назва</th><th>Адреса</th><th>Профіль</th><th>Канали</th><th></th></tr></thead>
+      <tbody id="patchBody"></tbody>
+    </table>
+    <div id="overlapWarn" class="warn" hidden></div>
+    <h3>Додати прилади</h3>
+    <div class="form grid4">
+      <label>Назва <input id="addName" placeholder="Прожектор"></label>
+      <label>Стартова адреса <input id="addAddress" type="number" min="1" max="512" value="1"></label>
+      <label>Профіль <select id="addProfile"></select></label>
+      <label>Кількість <input id="addCount" type="number" min="1" max="64" value="1"></label>
+    </div>
+    <div class="row">
+      <button class="btn primary" id="addFixture" type="button">Додати</button>
+      <span class="hint">Кілька приладів отримають послідовні адреси.</span>
+    </div>
+  </div>
+
+  <div id="tabProfiles" class="tab">
+    <p class="hint">Ролі каналів: <code>r g b w a uv</code> — кольори, <code>dim</code> — диммер, <code>strobe</code> — строб, <code>zero</code> — завжди 0, <code>full</code> — завжди 255. Порядок має відповідати інструкції до прожектора.</p>
+    <ul id="profileList" class="profile-list"></ul>
+    <h3>Новий / змінити профіль</h3>
+    <div class="form">
+      <label>Назва <input id="profName" placeholder="Мій PAR 7 кан."></label>
+      <label>Канали через кому <input id="profChannels" placeholder="dim, r, g, b, w, strobe, zero"></label>
+      <button class="btn primary" id="profSave" type="button">Зберегти профіль</button>
+    </div>
+  </div>
+  <div id="tabAbout" class="tab">
+    <div class="about">
+      <img src="/static/icon.svg" alt="" width="64" height="64">
+      <div>
+        <h3>SC DMX <span id="aboutVersion"></span></h3>
+        <p class="muted">Керування RGB-прожекторами через USB DMX (uDMX).</p>
+        <p class="muted">Оновлення: <a id="aboutRepo" target="_blank" rel="noopener"></a></p>
+      </div>
+    </div>
+    <div class="row">
+      <button class="btn primary" id="checkUpdate" type="button">Перевірити оновлення</button>
+      <span id="aboutUpdate" class="muted"></span>
+    </div>
+    <pre id="aboutNotes" class="notes" hidden></pre>
+    <h3>Вимкнення</h3>
+    <p class="hint">Програма працює у фоні й тримає світло, навіть якщо закрити вікно. Щоб повністю вийти (прожектори згаснуть):</p>
+    <button class="btn danger" id="quitApp" type="button">Вимкнути програму</button>
+  </div>
+</dialog>
+
+<div id="toast" class="toast" hidden></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
