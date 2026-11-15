@@ -123,7 +123,7 @@ sudo udevadm control --reload-rules && sudo udevadm trigger
 
 ## Бібліотека приладів
 
-У вікні «Новий прилад» є пошук по вбудованій бібліотеці з **1295 моделей** від 300+ виробників: Chauvet, American DJ, Eurolite, Stairville, Showtec, Cameo, Varytec, beamZ, Briteq та інших. Це **4405 режимів DMX**. Введіть виробника чи модель, клікніть потрібний режим, і профіль каналів створиться сам. Бібліотека працює без інтернету.
+У вікні «Новий прилад» є пошук по вбудованій бібліотеці з **1295 моделей** від 168 виробників: Chauvet, American DJ, Eurolite, Stairville, Showtec, Cameo, Varytec, beamZ, Briteq та інших. Це **4405 режимів DMX**. Введіть виробника чи модель, клікніть потрібний режим, і профіль каналів створиться сам. Бібліотека працює без інтернету.
 
 Описи взято з відкритих баз [Open Fixture Library](https://open-fixture-library.org) (MIT) і [QLC+](https://github.com/mcallegari/qlcplus) (Apache-2.0). Під час перетворення програма застосовує безпечні правила:
 - канали кольорів (RGBWA+UV) і диммера керуються з програми;
