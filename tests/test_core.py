@@ -426,15 +426,84 @@ def test_white_mixes_into_rgb_without_white_channel(tmp_path):
 
 
 def test_fixture_library_modes_are_valid():
-    from dmxctl import server
+    from dmxctl import library
     from dmxctl.fixtures import validate_profile
-    lib = server.library()
+    lib = library.models()
     assert len(lib) > 1000
     for fx in lib:
         for name, roles, *_ in fx["modes"]:
             validate_profile(roles)   # кожна роль відома програмі
-    found = server.search_library("adj mega bar")
+    found = library.search("adj mega bar")
     assert found and all("Mega" in f["n"] for f in found)
-    assert len(server.search_library("", 10)) == 10                 # без запиту — увесь розділ, порціями
-    assert all(f["t"] == "bar" for f in server.search_library("", 50, "bar"))
-    assert server.search_library("", 1)[0]["n"] == "WASH 243"        # вбудовані моделі — першими
+    assert len(library.search("", 10)) == 10                 # без запиту — увесь розділ, порціями
+    assert all(f["t"] == "bar" for f in library.search("", 50, "bar"))
+    assert library.search("", 1)[0]["n"] == "WASH 243"        # вбудовані моделі — першими
+
+
+def test_library_device_profile_not_in_menu(tmp_path):
+    import json
+    from dmxctl import library
+    cfg = tmp_path / "cfg.json"
+    eng = Engine(cfg)
+    fx = library.search("adj mega bar 50rgb")[0]
+    mode = fx["modes"][0]
+    name = library.profile_name(fx, mode)
+    eng.handle({"cmd": "add_fixture", "profile": name, "channels": mode[1], "address": 1,
+                "model": {"m": fx["m"], "n": fx["n"], "mode": mode[0]}})
+    f = eng.fixtures[0]
+    assert f.profile == name and eng.profiles[name] == mode[1]
+    assert f.model == {"m": fx["m"], "n": fx["n"], "mode": mode[0]}
+    # профіль моделі — у приладу, а не в меню профілів
+    st = eng.state()
+    assert name not in st["menu_profiles"] and set(DEFAULT_PROFILES) <= set(st["menu_profiles"])
+    assert st["recent_models"] == [{"m": fx["m"], "n": fx["n"]}]
+    assert [r["n"] for r in library.search("", 10, "recent", recent=st["recent_models"])] == [fx["n"]]
+    assert library.counts("", st["recent_models"])["recent"] == 1
+    # після перезапуску все на місці
+    eng.save()
+    eng2 = Engine(cfg)
+    assert eng2.fixtures[0].model == f.model and name not in eng2.menu_profiles()
+    assert eng2.recent_models == st["recent_models"]
+    # стандартний профіль відв'язує прилад від моделі; невикористаний профіль моделі не зберігається
+    eng2.handle({"cmd": "update_fixture", "id": f.id, "profile": "RGB (3 кан.)"})
+    assert eng2.fixtures[0].model is None
+    eng2.save()
+    saved = json.loads(cfg.read_text("utf-8"))
+    assert name not in saved["profiles"] and saved["recent_models"] == st["recent_models"]
+
+
+def test_recent_models_order_and_mode_change(tmp_path):
+    from dmxctl import library
+    eng = Engine(tmp_path / "cfg.json")
+    a, b = library.search("", 2, "par")
+    for fx in (a, b, a):
+        mode = fx["modes"][-1]
+        eng.handle({"cmd": "add_fixture", "profile": library.profile_name(fx, mode), "channels": mode[1],
+                    "address": 1 + 20 * len(eng.fixtures), "model": {"m": fx["m"], "n": fx["n"], "mode": mode[0]}})
+    assert [r["n"] for r in eng.recent_models] == [a["n"], b["n"]]   # найновіші першими, без повторів
+    # інший режим тієї самої моделі з властивостей приладу
+    f = eng.fixtures[1]
+    mode = b["modes"][0]
+    eng.handle({"cmd": "update_fixture", "id": f.id, "profile": library.profile_name(b, mode), "channels": mode[1],
+                "model": {"m": b["m"], "n": b["n"], "mode": mode[0]}})
+    assert eng.profiles[f.profile] == mode[1] and f.model["mode"] == mode[0]
+    assert eng.recent_models[0]["n"] == b["n"]
+
+
+def test_old_library_profiles_migrate_to_devices(tmp_path):
+    import json
+    from dmxctl import library
+    fx = library.search("adj mega bar 50rgb")[0]
+    mode = fx["modes"][0]
+    name = library.profile_name(fx, mode)
+    cfg = tmp_path / "cfg.json"
+    cfg.write_text(json.dumps({
+        "profiles": {name: mode[1], "Мій PAR": ["r", "g", "b", "zero"]},
+        "fixtures": [{"id": "a", "name": "Бар", "address": 1, "profile": name},
+                     {"id": "b", "name": "WASH", "address": 40, "profile": WASH24}],
+    }), "utf-8")
+    eng = Engine(cfg)
+    menu = eng.menu_profiles()
+    assert name not in menu and WASH24 not in menu and "Мій PAR" in menu   # власні профілі лишаються в меню
+    assert eng.fixtures[0].model["n"] == fx["n"] and eng.fixtures[1].model["n"] == "WASH 243"
+    assert [r["n"] for r in eng.recent_models] == [fx["n"], "WASH 243"]

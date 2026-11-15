@@ -13,7 +13,7 @@ from pathlib import Path
 
 from aiohttp import WSMsgType, web
 
-from . import APP_NAME, __version__, updater
+from . import APP_NAME, __version__, library, updater
 from .engine import Engine
 from .outputs import _usb_backends, find_udmx_devices, list_serial_ports
 
@@ -281,61 +281,14 @@ async def on_cleanup(app: web.Application) -> None:
 
 
 # ------------------------------------------------- бібліотека приладів ---
-_LIBRARY: list[dict] | None = None
-LIBRARY_TYPES = ["bar", "par", "head", "strobe", "matrix", "effect", "other"]
-
-
-def library() -> list[dict]:
-    """Моделі приладів: вбудовані (WASH 243) + зібрана база (tools/build_library.py)."""
-    global _LIBRARY
-    if _LIBRARY is None:
-        import gzip
-        from .fixtures import BUILTIN_MODELS
-        path = Path(__file__).parent / "library.json.gz"
-        try:
-            base = json.loads(gzip.decompress(path.read_bytes()))["fixtures"]
-        except (OSError, ValueError, KeyError):
-            log.exception("Не вдалося завантажити бібліотеку приладів")
-            base = []
-        _LIBRARY = [{**m, "builtin": True} for m in BUILTIN_MODELS] + base
-    return _LIBRARY
-
-
-MAKER_ALIASES = {"american dj": "adj", "chauvet": "chauvet dj", "stairville": "thomann", "eurolite": "steinigke",
-                 "martin": "martin professional", "elation": "elation professional"}
-
-
-def _matches(fx: dict, words: list[str]) -> bool:
-    text = f"{fx['m']} {MAKER_ALIASES.get(fx['m'].lower(), '')} {fx['n']}".lower()
-    return all(w in text for w in words)
-
-
-def search_library(query: str, limit: int = 40, kind: str = "", offset: int = 0) -> list[dict]:
-    words = [w for w in query.lower().split() if w]
-    hits = [fx for fx in library() if (not kind or fx.get("t") == kind) and _matches(fx, words)]
-    first = words[0] if words else ""
-    hits.sort(key=lambda fx: (not fx.get("builtin"),
-                              0 if first and (fx["m"].lower().startswith(first) or fx["n"].lower().startswith(first)) else 1,
-                              fx["m"].lower(), fx["n"].lower()))
-    return hits[offset:offset + limit]
-
-
-def library_counts(query: str) -> dict[str, int]:
-    words = [w for w in query.lower().split() if w]
-    counts = {t: 0 for t in LIBRARY_TYPES}
-    for fx in library():
-        if _matches(fx, words):
-            counts[fx.get("t", "other")] = counts.get(fx.get("t", "other"), 0) + 1
-    return counts
-
-
 async def library_api(request: web.Request) -> web.Response:
     q = request.query.get("q", "")
     kind = request.query.get("type", "")
     offset = max(0, int(request.query.get("offset", 0) or 0))
     limit = max(1, min(200, int(request.query.get("limit", 60) or 60)))
-    found = search_library(q, limit + 1, kind, offset)
-    resp = web.json_response({"total": len(library()), "counts": library_counts(q),
+    recent = request.app[ENGINE].recent_models
+    found = library.search(q, limit + 1, kind, offset, recent)
+    resp = web.json_response({"total": len(library.models()), "counts": library.counts(q, recent),
                               "results": found[:limit], "more": len(found) > limit},
                              dumps=lambda o: json.dumps(o, ensure_ascii=False))
     resp.enable_compression()

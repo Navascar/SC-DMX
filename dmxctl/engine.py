@@ -11,6 +11,7 @@ import uuid
 from dataclasses import replace
 from pathlib import Path
 
+from . import library
 from .effects import EFFECTS, effect_color, hex_to_rgb
 from .fixtures import (COLOR_KEYS, DEFAULT_PROFILES, LEGACY_PROFILES, MODEL_PROFILES, PRESET_COUNT, PROGRAMS, Fixture, find_overlaps,
                        has_presets, preset_level, render_fixture, segment_count, validate_fixture, validate_profile)
@@ -64,6 +65,13 @@ def _seg_rgbs(vals: dict, n: int) -> list[list[int]]:
     return [list(segs[k]) if k < len(segs) and segs[k] else base for k in range(n)]
 
 
+def _model(v) -> dict | None:
+    """Модель приладу {"m", "n", "mode"} або None."""
+    if not isinstance(v, dict) or not v.get("m") or not v.get("n"):
+        return None
+    return {"m": str(v["m"]), "n": str(v["n"]), "mode": str(v.get("mode", ""))}
+
+
 def _byte(v) -> int:
     v = int(v)
     if not 0 <= v <= 255:
@@ -75,6 +83,10 @@ class Engine:
     def __init__(self, config_path: str | os.PathLike):
         self.config_path = Path(config_path)
         self.profiles: dict[str, list[str]] = dict(DEFAULT_PROFILES)
+        # профілі, що належать моделям приладів (обираються разом із приладом, не в меню)
+        self.device_profiles: set[str] = set()
+        # нещодавно використані моделі бібліотеки: [{"m", "n"}], найновіші першими
+        self.recent_models: list[dict] = []
         self.fixtures: list[Fixture] = []
         self.scenes: dict[str, dict] = {}
         self.static_colors: list[dict] = [dict(c) for c in DEFAULT_STATIC_COLORS]
@@ -104,24 +116,70 @@ class Engine:
             return  # перший запуск: прилади додає користувач
         cfg = json.loads(self.config_path.read_text("utf-8"))
         self.profiles.update(cfg.get("profiles", {}))
+        self.device_profiles = set(cfg.get("device_profiles", [])) & set(self.profiles)
+        self.recent_models = [{"m": str(r["m"]), "n": str(r["n"])} for r in cfg.get("recent_models", [])
+                              if isinstance(r, dict) and "m" in r and "n" in r][:library.RECENT_LIMIT]
         self.fixtures = [Fixture.from_dict(f) for f in cfg.get("fixtures", [])]
         for f in self.fixtures:  # міграція зі старих версій
             f.profile = LEGACY_PROFILES.get(f.profile, f.profile)
             self._ensure_profile(f.profile)
             if f.preset is not None and not 1 <= f.preset <= PRESET_COUNT:
                 f.preset = None
+            f.model = _model(f.model)
+        if "device_profiles" not in cfg:
+            self._migrate_device_profiles()
         self.scenes = cfg.get("scenes", {})
         if "static_colors" in cfg:
             self.static_colors = cfg["static_colors"]
         self.output_cfg = cfg.get("output", {"type": "udmx"})
         self.master = int(cfg.get("master", 255))
 
+    def _migrate_device_profiles(self) -> None:
+        """До 1.20 профілі моделей бібліотеки зберігалися як звичайні — прив'язуємо їх до приладів."""
+        for name, channels in list(self.profiles.items()):
+            if name in DEFAULT_PROFILES:
+                continue
+            owner = library.profile_owner(name, channels)
+            if owner is None:
+                continue
+            self.device_profiles.add(name)
+            for f in self.fixtures:
+                if f.profile == name and f.model is None:
+                    f.model = dict(owner)
+        for f in self.fixtures:
+            if f.model:
+                self._remember(f.model, last=True)
+
+    def _is_device(self, name: str) -> bool:
+        if name in DEFAULT_PROFILES:
+            return False
+        return name in self.device_profiles or name in MODEL_PROFILES
+
+    def menu_profiles(self) -> list[str]:
+        """Профілі для меню: стандартні та власні. Профілі моделей обираються разом із приладом."""
+        return [n for n in self.profiles if not self._is_device(n)]
+
+    def _remember(self, model: dict, last: bool = False) -> None:
+        """Додає модель до «Нещодавно використаних»."""
+        key = {"m": model["m"], "n": model["n"]}
+        if last:
+            if key not in self.recent_models and len(self.recent_models) < library.RECENT_LIMIT:
+                self.recent_models.append(key)
+            return
+        self.recent_models = [key] + [r for r in self.recent_models if r != key]
+        del self.recent_models[library.RECENT_LIMIT:]
+
     def save(self) -> None:
-        custom = {k: v for k, v in self.profiles.items() if DEFAULT_PROFILES.get(k) != v}
+        used = {f.profile for f in self.fixtures}
+        # профіль моделі зберігається, поки його використовує хоч один прилад
+        custom = {k: v for k, v in self.profiles.items()
+                  if DEFAULT_PROFILES.get(k) != v and (k in used or not self._is_device(k))}
         cfg = {
             "output": self.output_cfg,
             "master": self.master,
             "profiles": custom,
+            "device_profiles": sorted(k for k in custom if self._is_device(k)),
+            "recent_models": self.recent_models,
             "fixtures": [f.to_dict() for f in self.fixtures],
             "scenes": self.scenes,
             "static_colors": self.static_colors,
@@ -186,6 +244,8 @@ class Engine:
             "raw": {str(ch + 1): v for ch, v in sorted(self.raw.items())},
             "fixtures": [f.to_dict() for f in self.fixtures],
             "profiles": self.profiles,
+            "menu_profiles": self.menu_profiles(),
+            "recent_models": self.recent_models,
             "scenes": {k: {"fixtures": len(v["fixtures"])} for k, v in self.scenes.items()},
             "output": self.output.info(),
             "output_cfg": self.output_cfg,
@@ -240,6 +300,7 @@ class Engine:
             "fixtures": [f.to_dict() for f in self.fixtures],
             "master": self.master, "blackout": self.blackout, "effect": self.effect,
             "scenes": self.scenes, "static_colors": self.static_colors, "profiles": self.profiles,
+            "device_profiles": sorted(self.device_profiles),
         })
 
     def _restore(self, snap: dict) -> None:
@@ -247,6 +308,7 @@ class Engine:
         self.fixtures = [Fixture.from_dict(f) for f in snap["fixtures"]]
         self.master, self.blackout, self.effect = snap["master"], snap["blackout"], snap["effect"]
         self.scenes, self.static_colors, self.profiles = snap["scenes"], snap["static_colors"], snap["profiles"]
+        self.device_profiles = set(snap.get("device_profiles", []))
         self._fade = None
         self._undo_key = None
 
@@ -387,11 +449,36 @@ class Engine:
     def cmd_blackout(self, m):
         self.blackout = bool(m.get("on", not self.blackout))
 
+    def _profile_from(self, m) -> tuple[str, dict | None]:
+        """Профіль і модель приладу з команди.
+
+        Профіль моделі бібліотеки приходить разом із каналами (channels) і моделлю (model);
+        він належить приладу і в меню профілів не потрапляє.
+        """
+        model = _model(m.get("model"))
+        if m.get("channels") is None:
+            name = self._ensure_profile(str(m.get("profile", "")))
+            if name not in self.profiles:
+                raise ValueError(f"невідомий профіль «{name}»")
+            return name, model if self._is_device(name) else None
+        channels = [str(c).strip() for c in m["channels"]]
+        validate_profile(channels)
+        name = str(m.get("profile") or "").strip()
+        if not name and model:
+            name = f"{model['m']} {model['n']} · {model['mode']} ({len(channels)} кан.)"
+        if not name:
+            raise ValueError("вкажіть назву профілю")
+        base, k = name, 2
+        while name in self.profiles and self.profiles[name] != channels:
+            name, k = f"{base} ({k})", k + 1
+        if name not in self.profiles:
+            self.profiles[name] = channels
+            self.device_profiles.add(name)
+        return name, model if self._is_device(name) else None
+
     def cmd_add_fixture(self, m):
         count = max(1, min(64, int(m.get("count", 1))))
-        profile = self._ensure_profile(m["profile"])
-        if profile not in self.profiles:
-            raise ValueError(f"невідомий профіль «{profile}»")
+        profile, model = self._profile_from(m)
         width = len(self.profiles[profile])
         address = int(m["address"])
         new = []
@@ -400,20 +487,31 @@ class Engine:
             if count > 1 or not m.get("name"):
                 name = f"{name} {len(self.fixtures) + len(new) + 1}"
             fx = Fixture(id=uuid.uuid4().hex[:8], name=name, address=address + i * width,
-                         profile=profile)
+                         profile=profile, model=dict(model) if model else None)
             validate_fixture(fx, self.profiles)
             new.append(fx)
         self.fixtures.extend(new)
+        if model:
+            self._remember(model)
 
     def cmd_update_fixture(self, m):
         fx = self._fx(m["id"])
-        changes = {k: m[k] for k in ("name", "address", "profile") if k in m}
-        if "profile" in changes:
-            changes["profile"] = self._ensure_profile(changes["profile"])
+        changes = {k: m[k] for k in ("name", "address") if k in m}
+        model = fx.model
+        if "profile" in m or "channels" in m:
+            profile, new_model = self._profile_from(m)
+            if profile != fx.profile or "model" in m:
+                model = new_model
+            changes["profile"] = profile
         trial = Fixture.from_dict({**fx.to_dict(), **changes})
         trial.address = int(trial.address)
         validate_fixture(trial, self.profiles)
+        if trial.profile != fx.profile:
+            fx.segs = None
         fx.name, fx.address, fx.profile = trial.name, trial.address, trial.profile
+        fx.model = dict(model) if model and self._is_device(fx.profile) else None
+        if fx.model and "model" in m:
+            self._remember(fx.model)
         if "presets" in m:
             fx.presets = None if m["presets"] is None else bool(m["presets"])
         if not has_presets(fx):
@@ -442,10 +540,13 @@ class Engine:
             trial = Fixture.from_dict({**fx.to_dict(), "profile": name})
             validate_fixture(trial, {**self.profiles, name: channels})
             self.profiles[name] = channels
+            self.device_profiles.discard(name)
             fx.profile = name
             fx.segs = None
+            fx.model = None
         else:
             self.profiles[name] = channels
+            self.device_profiles.discard(name)
 
     def cmd_raw_set(self, m):
         """Тест каналів: виставити DMX-адресу (1..512) вручну поверх усього."""

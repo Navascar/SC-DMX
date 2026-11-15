@@ -808,8 +808,8 @@ function renderSettings() {
     $("#outUniverse").value = o.universe ?? (o.type === "sacn" ? 1 : 0);
     toggleOutFields();
   }
-  // профілі в селектах
-  const profNames = Object.keys(S.profiles);
+  // профілі в меню: лише стандартні й власні; профілі моделей обираються разом із приладом
+  const profNames = menuProfiles();
   const addSel = $("#addProfile");
   const keep = addSel.value;
   addSel.replaceChildren(...profNames.map((p) => el("option", { value: p, textContent: p })));
@@ -825,8 +825,7 @@ function renderSettings() {
     name.onchange = () => send({ cmd: "update_fixture", id: f.id, name: name.value });
     const addr = el("input", { type: "number", min: 1, max: 512, value: f.address });
     addr.onchange = () => send({ cmd: "update_fixture", id: f.id, address: +addr.value });
-    const prof = el("select", {}, ...profNames.map((p) => el("option", { value: p, textContent: p })));
-    prof.value = f.profile;
+    const prof = profileSelect(el("select"), f);
     prof.onchange = () => send({ cmd: "update_fixture", id: f.id, profile: prof.value });
     const tr = el("tr", { className: overlapIds.has(f.id) ? "overlap" : "" },
       el("td", {}, name), el("td", {}, addr), el("td", {}, prof),
@@ -853,17 +852,46 @@ function renderSettings() {
     Object.assign(ibtn("trash", "", { title: "Видалити профіль" }), { onclick: () => send({ cmd: "delete_profile", name: p }) }))));
 }
 
+// профілі для меню (стандартні + власні); профілі моделей бібліотеки туди не потрапляють
+const menuProfiles = () => S.menu_profiles || Object.keys(S.profiles);
+const modelLabel = (model) => `${model.m} ${model.n}${model.mode ? " · " + model.mode : ""}`;
+
+// селект профілю приладу: меню + власний профіль моделі цього приладу (якщо є)
+function profileSelect(sel, f, device = null) {
+  const names = menuProfiles();
+  const opts = names.map((p) => el("option", { value: p, textContent: p }));
+  const own = device || (!names.includes(f.profile) && { name: f.profile, model: f.model });
+  if (own) opts.unshift(el("option", { value: own.name, textContent: own.model ? `Модель: ${modelLabel(own.model)}` : own.name }));
+  sel.replaceChildren(...opts);
+  sel.value = own ? own.name : f.profile;
+  return sel;
+}
+
 // --------------------------------------------------- властивості приладу ---
 let propId = null;
+let propDevice = null;   // профіль моделі приладу: { name, channels, model, changed }
+
+function propChannels() {
+  const v = $("#propProfile").value;
+  return propDevice && v === propDevice.name ? propDevice.channels : S.profiles[v] || [];
+}
+
+function renderPropModel() {
+  const box = $("#propModel");
+  box.hidden = !propDevice?.model;
+  if (!box.hidden) $("#propModelText").replaceChildren(el("b", { textContent: `${propDevice.model.m} ${propDevice.model.n}` }),
+    el("br"), `Режим: ${propDevice.model.mode} · ${propDevice.channels.length} кан.`);
+}
 
 function openProps(id) {
   const f = S.fixtures.find((x) => x.id === id);
   if (!f) return;
   propId = id;
   renderSettings();
-  const sel = $("#propProfile");
-  sel.replaceChildren(...Object.keys(S.profiles).map((p) => el("option", { value: p, textContent: p })));
-  sel.value = f.profile;
+  propDevice = menuProfiles().includes(f.profile) ? null
+    : { name: f.profile, channels: S.profiles[f.profile] || [], model: f.model, changed: false };
+  profileSelect($("#propProfile"), f, propDevice);
+  renderPropModel();
   $("#propName").value = f.name;
   $("#propAddress").value = f.address;
   $("#propDimmer").value = f.dimmer;
@@ -875,7 +903,7 @@ function openProps(id) {
 function updatePropInfo() {
   const f = S.fixtures.find((x) => x.id === propId);
   if (!f) return;
-  const ch = S.profiles[$("#propProfile").value] || [];
+  const ch = propChannels();
   const start = +$("#propAddress").value || 1;
   const end = start + ch.length - 1;
   const n = Math.max(1, ...["r", "g", "b"].map((c) => ch.filter((x) => x === c).length));
@@ -903,7 +931,7 @@ const tested = new Set();   // адреси, якими зараз керує т
 function buildTestRows() {
   const f = S.fixtures.find((x) => x.id === propId);
   if (!f) return;
-  const prof = S.profiles[$("#propProfile").value] || [];
+  const prof = propChannels();
   const start = +$("#propAddress").value || f.address;
   const count = Math.max(1, Math.min(64, +$("#testCount").value || prof.length));
   const prev = [...$("#testRows").children].map((r) => ({ role: r.querySelector("select").value, v: r.querySelector("input").value }));
@@ -939,7 +967,7 @@ function releaseTest() {
 function bindTest() {
   $("#propTest").addEventListener("toggle", () => {
     if ($("#propTest").open) {
-      const prof = S.profiles[$("#propProfile").value] || [];
+      const prof = propChannels();
       if (!$("#testCount").value) $("#testCount").value = prof.length;
       if (!$("#testProfName").value) {
         const f = S.fixtures.find((x) => x.id === propId);
@@ -950,7 +978,7 @@ function bindTest() {
   });
   $("#testCount").addEventListener("change", buildTestRows);
   $("#propProfile").addEventListener("change", () => {
-    $("#testCount").value = (S.profiles[$("#propProfile").value] || []).length;
+    $("#testCount").value = propChannels().length;
     $("#testRows").replaceChildren();
     if ($("#propTest").open) buildTestRows();
   });
@@ -991,7 +1019,7 @@ function duplicateFixture(id) {
   const f = S.fixtures.find((x) => x.id === id);
   if (!f) return;
   addPending = S.fixtures.length;
-  send({ cmd: "add_fixture", name: f.name + " (копія)", profile: f.profile, address: nextFreeAddress(), count: 1 });
+  send({ cmd: "add_fixture", name: f.name + " (копія)", profile: f.profile, model: f.model, address: nextFreeAddress(), count: 1 });
 }
 
 function deleteFixtures(ids) {
@@ -1011,10 +1039,28 @@ function bindProps() {
   $("#propDimmer").addEventListener("input", () =>
     sendThrottled("color", { cmd: "set_color", ids: [propId], dimmer: +$("#propDimmer").value }));
   $("#propSave").onclick = () => {
-    send({ cmd: "update_fixture", id: propId, name: $("#propName").value.trim() || "Прилад",
-           address: +$("#propAddress").value, profile: $("#propProfile").value,
-           presets: $("#propPresets").checked });
+    const msg = { cmd: "update_fixture", id: propId, name: $("#propName").value.trim() || "Прилад",
+                  address: +$("#propAddress").value, profile: $("#propProfile").value,
+                  presets: $("#propPresets").checked };
+    if (propDevice?.changed && msg.profile === propDevice.name)
+      Object.assign(msg, { channels: propDevice.channels, model: propDevice.model });
+    send(msg);
     $("#propDlg").close();
+  };
+  // інший режим тієї самої моделі — у вікні вибору режиму
+  $("#propModeBtn").onclick = async () => {
+    const m = propDevice?.model;
+    if (!m) return;
+    const fx = await findModel(m.m, m.n);
+    if (!fx) return toast("Модель не знайдено в бібліотеці");
+    openModes(fx, m.mode, (mode) => {
+      const f = S.fixtures.find((x) => x.id === propId);
+      propDevice = { name: libProfileName(fx, mode), channels: mode[1], model: { m: fx.m, n: fx.n, mode: mode[0] }, changed: true };
+      profileSelect($("#propProfile"), f, propDevice);
+      renderPropModel();
+      $("#propProfile").dispatchEvent(new Event("change"));
+      updatePropInfo();
+    });
   };
   $("#propDup").onclick = () => { $("#propDlg").close(); duplicateFixture(propId); };
   $("#propDelete").onclick = () => deleteFixtures([propId]).then((ok) => ok && $("#propDlg").close());
@@ -1372,14 +1418,13 @@ let addPending = null;
 
 // ------------------------------------------------- бібліотека приладів -----
 const LIB_TYPES = [
-  ["", "Усі моделі"], ["bar", "LED-бари"], ["par", "Прожектори PAR і заливка"], ["head", "Голови"],
+  ["recent", "Нещодавно використані"], ["", "Усі моделі"], ["bar", "LED-бари"], ["par", "Прожектори PAR і заливка"], ["head", "Голови"],
   ["strobe", "Стробоскопи і блайндери"], ["matrix", "Матриці й панелі"], ["effect", "Ефекти"], ["other", "Інше"],
 ];
 const LED = { r: "#ff4a4a", g: "#3ddc6b", b: "#4f7dff", w: "#f4f1e8", a: "#ffb02e", uv: "#a066ff" };
 const LED_NAME = { r: "R", g: "G", b: "B", w: "W", a: "A", uv: "UV" };
 const lib = { type: "", q: "", offset: 0, seq: 0, timer: null };
-let pendingProfile = null;
-let chosenModel = null;
+let addDevice = null;   // модель і режим, вибрані в бібліотеці: { fx, mode }
 
 function libProfileName(fx, mode) {
   return mode[2] || `${fx.m} ${fx.n} · ${mode[0]} (${mode[1].length} кан.)`;
@@ -1435,19 +1480,30 @@ function fixtureArt(fx) {
   return `<svg viewBox="0 0 240 96" role="img" aria-label="${fx.t}">${g}</svg>`;
 }
 
-function libCard(fx) {
-  const card = el("div", { className: "lib-card" });
-  const img = el("div", { className: "lib-img", innerHTML: fixtureArt(fx) });
-  const colors = el("div", { className: "lib-colors" }, ...fxColors(fx).map((c) => {
+// 1 режим, 2 режими, 5 режимів
+function modesText(n) {
+  const d = n % 10, h = n % 100;
+  const w = d === 1 && h !== 11 ? "режим" : d >= 2 && d <= 4 && (h < 12 || h > 14) ? "режими" : "режимів";
+  return `${n} ${w}`;
+}
+
+function colorChips(fx) {
+  return fxColors(fx).map((c) => {
     const i = el("i"); i.style.background = LED[c];
     return el("span", {}, i, LED_NAME[c]);
-  }));
-  const modes = el("div", { className: "lib-modes" }, ...fx.modes.map((mode) => {
-    const b = el("button", { type: "button", className: "btn small", title: mode[1].join(" "),
-                             textContent: `${mode[0]} · ${mode[1].length} кан.` });
-    b.onclick = () => importProfile(fx, mode, b);
-    return b;
-  }));
+  });
+}
+
+// картка моделі: клік по будь-якій її частині відкриває вибір режиму
+function libCard(fx) {
+  const card = el("div", { className: "lib-card", tabIndex: 0, role: "button",
+                           title: `${fx.m} ${fx.n} — вибрати режим` });
+  const pick = () => openModes(fx, null, (mode) => { chooseDevice(fx, mode); $("#libDlg").close(); });
+  card.onclick = pick;
+  card.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } };
+  const img = el("div", { className: "lib-img", innerHTML: fixtureArt(fx) });
+  const colors = el("div", { className: "lib-colors" }, ...colorChips(fx));
+  const modes = el("div", { className: "lib-modes-n", textContent: modesText(fx.modes.length) });
   card.append(img, el("div", { className: "lib-maker", textContent: fx.m }),
               el("div", { className: "lib-model", textContent: fx.n }), colors, modes);
   return card;
@@ -1461,10 +1517,11 @@ async function loadLibrary(append = false) {
   try { data = await (await fetch(`/api/library?${params}`)).json(); } catch { /* сервер недоступний */ }
   if (seq !== lib.seq) return;  // відповідь на застарілий запит
   // розділи з кількістю моделей для поточного пошуку
-  const all = Object.values(data.counts).reduce((x, y) => x + y, 0);
+  const all = Object.entries(data.counts).reduce((x, [k, y]) => x + (k === "recent" ? 0 : y), 0);
   $("#libTypes").replaceChildren(...LIB_TYPES.map(([key, label]) => {
     const n = key ? data.counts[key] || 0 : all;
-    const b = el("button", { type: "button", className: lib.type === key ? "active" : "", disabled: !n && lib.type !== key },
+    const cls = [lib.type === key ? "active" : "", key === "recent" ? "recent" : ""].join(" ").trim();
+    const b = el("button", { type: "button", className: cls, disabled: !n && lib.type !== key },
       el("span", { textContent: label }), el("span", { className: "n", textContent: n }));
     b.onclick = () => { lib.type = key; loadLibrary(); };
     return b;
@@ -1473,35 +1530,66 @@ async function loadLibrary(append = false) {
   if (!append) { grid.replaceChildren(); grid.scrollTop = 0; }
   for (const fx of data.results) grid.append(libCard(fx));
   if (!grid.children.length) grid.append(el("div", { className: "lib-empty",
-    textContent: "Нічого не знайдено. Спробуйте коротший запит або інший розділ." }));
+    textContent: lib.type === "recent" && !lib.q ? "Тут з'являться прилади, які ви додавали з бібліотеки."
+      : "Нічого не знайдено. Спробуйте коротший запит або інший розділ." }));
   lib.offset += data.results.length;
   $("#libMore").hidden = !data.more;
 }
 
 function openLibrary() {
+  if (!lib.opened) {   // нове вікно «Новий прилад» — починаємо з нещодавно використаних, якщо вони є
+    lib.opened = true;
+    lib.type = (S.recent_models || []).length ? "recent" : "";
+  }
   lib.q = $("#libSearch").value.trim();
   $("#libDlg").showModal();
   loadLibrary();
   $("#libSearch").focus();
 }
 
-function pickProfile(name) {
-  $("#addProfile").value = name;
+// вікно вибору режиму (конфігурації) моделі
+function openModes(fx, current, onPick) {
+  $("#modeTitle").textContent = fx.n;
+  $("#modeMaker").textContent = fx.m;
+  $("#modeImg").innerHTML = fixtureArt(fx);
+  $("#modeColors").replaceChildren(...colorChips(fx));
+  $("#modeList").replaceChildren(...fx.modes.map((mode) => {
+    const b = el("button", { type: "button", className: "mode-item" + (mode[0] === current ? " picked" : "") },
+      el("b", { textContent: mode[0] }), el("span", { className: "n", textContent: `${mode[1].length} кан.` }),
+      el("span", { className: "chs", textContent: mode[1].join(" ") }));
+    b.onclick = () => { $("#modeDlg").close(); onPick(mode); };
+    return b;
+  }));
+  $("#modeDlg").showModal();
+  ($("#modeList .picked") || $("#modeList button"))?.focus();
+}
+
+async function findModel(m, n) {
+  const params = new URLSearchParams({ q: `${m} ${n}`, limit: 200 });
+  try {
+    const data = await (await fetch(`/api/library?${params}`)).json();
+    return data.results.find((x) => x.m === m && x.n === n) || null;
+  } catch { return null; }
+}
+
+function chooseDevice(fx, mode) {
+  addDevice = { fx, mode };
+  const name = $("#addName");
+  if (!name.value.trim() || name.dataset.auto === "1") { name.value = fx.n; name.dataset.auto = "1"; }
+  renderAddChosen();
   updateAddInfo();
 }
 
-function importProfile(fx, mode, btn) {
-  const name = libProfileName(fx, mode);
-  if (!$("#addName").value.trim()) $("#addName").value = fx.n;
-  document.querySelectorAll(".lib-modes .btn.picked").forEach((b) => b.classList.remove("picked"));
-  btn.classList.add("picked");
-  chosenModel = fx;
-  $("#libChosen").replaceChildren(el("b", { textContent: `${fx.m} ${fx.n}` }), el("br"), `Режим: ${mode[0]} · ${mode[1].length} кан.`);
-  $("#libDlg").close();
-  if (S.profiles[name]) return pickProfile(name);
-  pendingProfile = name;
-  send({ cmd: "save_profile", name, channels: mode[1] });
+function renderAddChosen() {
+  const d = addDevice;
+  $("#clearModel").hidden = !d;
+  $("#addProfileRow").hidden = !!d;
+  if (d) $("#libChosen").replaceChildren(el("b", { textContent: `${d.fx.m} ${d.fx.n}` }), el("br"),
+                                         `Режим: ${d.mode[0]} · ${d.mode[1].length} кан.`);
+  else $("#libChosen").textContent = "Модель не вибрано. Виберіть її з бібліотеки або стандартний профіль для невідомого приладу.";
 }
+
+const addChannels = () => addDevice ? addDevice.mode[1] : S.profiles[$("#addProfile").value] || [];
 
 function nextFreeAddress() {
   const end = Math.max(0, ...S.fixtures.map((f) => f.address + S.profiles[f.profile].length - 1));
@@ -1513,15 +1601,17 @@ function openAdd() {
   $("#addAddress").value = nextFreeAddress();
   $("#addCount").value = 1;
   $("#addName").value = "";
+  $("#addName").dataset.auto = "";
   $("#libSearch").value = "";
-  chosenModel = null;
-  $("#libChosen").textContent = "Модель не вибрано — виберіть з бібліотеки або профіль вручну";
+  addDevice = null;
+  lib.opened = false;
+  renderAddChosen();
   updateAddInfo();
   $("#addDlg").showModal();
 }
 
 function updateAddInfo() {
-  const ch = S.profiles[$("#addProfile").value] || [];
+  const ch = addChannels();
   const n = Math.max(1, ...["r", "g", "b"].map((c) => ch.filter((x) => x === c).length));
   const count = Math.max(1, +$("#addCount").value || 1);
   const start = +$("#addAddress").value || 1;
@@ -1532,11 +1622,6 @@ function updateAddInfo() {
 
 // після успішного додавання — закрити вікно і вибрати новий прилад
 function afterState() {
-  if (pendingProfile && S.profiles[pendingProfile]) {
-    renderSettings();
-    pickProfile(pendingProfile);
-    pendingProfile = null;
-  }
   if (addPending !== null && S.fixtures.length > addPending) {
     const added = S.fixtures.slice(addPending);
     addPending = null;
@@ -1596,17 +1681,23 @@ function bindSettings() {
   });
   $("#libMore").onclick = () => loadLibrary(true);
   $("#openLibrary").onclick = openLibrary;
-  $("#addProfile").addEventListener("change", () => {
-    chosenModel = null;
-    $("#libChosen").textContent = "Профіль вибрано вручну";
-  });
+  $("#clearModel").onclick = () => {
+    addDevice = null;
+    if ($("#addName").dataset.auto === "1") $("#addName").value = "";
+    renderAddChosen();
+    updateAddInfo();
+  };
+  $("#addName").addEventListener("input", () => ($("#addName").dataset.auto = ""));
   $("#addAddress").addEventListener("input", updateAddInfo);
   $("#addFixture").onclick = () => {
     addPending = S.fixtures.length;
-    send({
-      cmd: "add_fixture", name: $("#addName").value.trim(), address: +$("#addAddress").value,
-      profile: $("#addProfile").value, count: +$("#addCount").value || 1,
-    });
+    const msg = { cmd: "add_fixture", name: $("#addName").value.trim(), address: +$("#addAddress").value,
+                  profile: $("#addProfile").value, count: +$("#addCount").value || 1 };
+    if (addDevice) {   // профіль моделі йде разом із приладом і не додається в меню профілів
+      const { fx, mode } = addDevice;
+      Object.assign(msg, { profile: libProfileName(fx, mode), channels: mode[1], model: { m: fx.m, n: fx.n, mode: mode[0] } });
+    }
+    send(msg);
   };
   $("#profSave").onclick = () => {
     const channels = $("#profChannels").value.split(/[\s,;]+/).filter(Boolean);

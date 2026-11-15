@@ -220,10 +220,11 @@
   </form>
   <div class="form">
     <div class="lib-pick">
-      <div id="libChosen" class="lib-chosen">Модель не вибрано — виберіть з бібліотеки або профіль вручну</div>
+      <div id="libChosen" class="lib-chosen"></div>
+      <button class="btn" id="clearModel" type="button" hidden>Скинути</button>
       <button class="btn" id="openLibrary" type="button" data-icon="grid">Вибрати з бібліотеки</button>
     </div>
-    <label>Профіль (режим DMX на приладі) <select id="addProfile"></select></label>
+    <label id="addProfileRow">Стандартний профіль (для невідомого приладу) <select id="addProfile"></select></label>
     <p id="addInfo" class="info"></p>
     <div class="grid3">
       <label>Назва <input id="addName" placeholder="Прожектор"></label>
@@ -252,6 +253,22 @@
   </div>
 </dialog>
 
+<dialog id="modeDlg" class="small-dlg mode-dlg">
+  <div class="dialog-head">
+    <h2 id="modeTitle">Режим приладу</h2>
+    <button class="btn ghost icon-btn" type="button" data-icon="x" aria-label="Закрити" onclick="this.closest('dialog').close()"></button>
+  </div>
+  <div class="mode-head">
+    <div id="modeImg" class="lib-img"></div>
+    <div class="mode-about">
+      <div id="modeMaker" class="lib-maker"></div>
+      <div id="modeColors" class="lib-colors"></div>
+      <p class="muted">Виберіть режим DMX, який стоїть на самому приладі.</p>
+    </div>
+  </div>
+  <div id="modeList" class="mode-list"></div>
+</dialog>
+
 <dialog id="updDlg" class="small-dlg">
   <form method="dialog" class="dialog-head">
     <h2 id="updTitle">Доступне оновлення</h2>
@@ -276,6 +293,10 @@
     <div class="grid2">
       <label>Стартова адреса <input id="propAddress" type="number" min="1" max="512"></label>
       <label>Яскравість <input id="propDimmer" type="range" min="0" max="255"><output id="propDimmerVal"></output></label>
+    </div>
+    <div id="propModel" class="lib-pick" hidden>
+      <div id="propModelText" class="lib-chosen"></div>
+      <button class="btn" id="propModeBtn" type="button">Змінити режим</button>
     </div>
     <label>Профіль (режим DMX на приладі) <select id="propProfile"></select></label>
     <label class="check"><input type="checkbox" id="propPresets"> Вбудовані пресети (LED-бар)</label>
