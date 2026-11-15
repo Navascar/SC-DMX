@@ -138,10 +138,36 @@ def run_window(url: str, should_close: Callable[[], bool] = lambda: False) -> in
 
     retries = {"n": 0}
 
+    def repaint():
+        """Іноді (перший старт вбудованого Chromium) сторінка завантажена, але вікно лишається порожнім,
+        доки його не змінити в розмірі. Тож після завантаження вікно примусово перемальовується."""
+        size = view.size()
+        view.resize(size.width() - 1, size.height())
+        QTimer.singleShot(60, lambda: (view.resize(size), view.update()))
+
+    def verify():
+        """Інтерфейс справді з'явився? Якщо ні — завантажуємо сторінку ще раз."""
+        if not boot["loaded"] or view.url().toString() != url:
+            return
+
+        def check(ready):
+            if ready is True:
+                wlog("Інтерфейс показано")
+                repaint()
+            elif retries["n"] < 20:
+                retries["n"] += 1
+                wlog(f"Інтерфейс не з'явився ({ready!r}) — перезавантаження")
+                view.load(QUrl(url))
+        view.page().runJavaScript("!!(document.body && document.querySelector('#outputText'))", 0, check)
+
     def on_load_finished(ok: bool):
         current = view.url().toString()
         wlog(f"Сторінка завантажена: ok={ok} url={current or '(екран завантаження)'}")
-        if not ok and boot["loaded"] and retries["n"] < 20:
+        if ok:
+            repaint()
+            if current == url:
+                QTimer.singleShot(1500, verify)
+        elif boot["loaded"] and retries["n"] < 20:
             retries["n"] += 1          # сервер ще не відповідає — пробуємо ще раз
             QTimer.singleShot(1000, lambda: view.load(QUrl(url)))
 
@@ -265,6 +291,7 @@ def run_window(url: str, should_close: Callable[[], bool] = lambda: False) -> in
 
     win.show()
     wlog("Вікно показано")
+    QTimer.singleShot(300, repaint)
     code = app.exec()
     wlog(f"Вікно закрито, код {code}")
     return code

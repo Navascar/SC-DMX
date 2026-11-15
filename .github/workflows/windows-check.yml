@@ -74,6 +74,11 @@ jobs:
           $g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
           New-Item -ItemType Directory -Force shots | Out-Null
           $bmp.Save("$pwd\shots\4-app-screen.png")
+          # порожнє вікно — майже один колір на весь екран програми
+          $colors = @{}
+          for ($x = 40; $x -lt $b.Width - 40; $x += 16) { for ($y = 60; $y -lt $b.Height - 80; $y += 16) { $colors[$bmp.GetPixel($x, $y).ToArgb()] = 1 } }
+          "Кольорів на знімку програми: $($colors.Count)"
+          $blank = $colors.Count -lt 40
           Start-Sleep -Seconds 20
           $g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
           $bmp.Save("$pwd\shots\5-app-screen-later.png")
@@ -85,6 +90,7 @@ jobs:
           '--- процеси'
           Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'dmxctl|sc-dmx|QtWebEngine' } |
             ForEach-Object { "$($_.ProcessId) $($_.CommandLine)" }
+          if ($blank) { 'Вікно програми порожнє'; exit 1 }
           Push-Location $app
           @'
           import win32gui
