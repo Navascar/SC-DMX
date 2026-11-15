@@ -13,7 +13,7 @@ from pathlib import Path
 
 from .effects import EFFECTS, effect_color, hex_to_rgb
 from .fixtures import (COLOR_KEYS, DEFAULT_PROFILES, PRESET_COUNT, Fixture, find_overlaps,
-                       preset_level, render_fixture, segment_count, validate_fixture, validate_profile)
+                       has_presets, preset_level, render_fixture, segment_count, validate_fixture, validate_profile)
 from .outputs import DMX_CHANNELS, OUTPUT_TYPES, create_output
 
 log = logging.getLogger(__name__)
@@ -170,6 +170,7 @@ class Engine:
             "static_colors": self.static_colors,
             "effects": EFFECTS,
             "preset_count": PRESET_COUNT,
+            "preset_fixtures": [f.id for f in self.fixtures if has_presets(f)],
             "undo": self._undo[-1][0] if self._undo else None,
             "redo": self._redo[-1][0] if self._redo else None,
             "overlaps": find_overlaps(self.fixtures, self.profiles),
@@ -269,9 +270,11 @@ class Engine:
         if n is not None:
             preset_level(n)  # перевірка діапазону
         whole, segs = self._resolve(m.get("ids"))
-        targets = {f.id: f for f in whole + [f for f, _ in segs]}
+        targets = {f.id: f for f in whole + [f for f, _ in segs] if has_presets(f)}
+        if not targets and not m.get("ids"):
+            targets = {f.id: f for f in self.fixtures if has_presets(f)}
         if not targets:
-            targets = {f.id: f for f in self.fixtures}
+            raise ValueError("Пресети доступні лише для LED-барів — виберіть бар")
         self._fade = None
         for f in targets.values():
             f.preset = n
@@ -375,6 +378,10 @@ class Engine:
         trial.address = int(trial.address)
         validate_fixture(trial, self.profiles)
         fx.name, fx.address, fx.profile = trial.name, trial.address, trial.profile
+        if "presets" in m:
+            fx.presets = None if m["presets"] is None else bool(m["presets"])
+        if not has_presets(fx):
+            fx.preset = None
 
     def cmd_delete_fixture(self, m):
         self.fixtures = [f for f in self.fixtures if f.id != m["id"]]
@@ -533,7 +540,7 @@ class Engine:
             channels = self.profiles.get(fx.profile)
             if not channels:
                 continue
-            if fx.preset:
+            if fx.preset and has_presets(fx):
                 # пресет: червоний на максимумі, яскравість = рівень пресету; майстер не зсуває рівень
                 lvl = preset_level(fx.preset)
                 red = {"r": 255.0, "g": 0.0, "b": 0.0, "w": 0.0, "a": 0.0, "uv": 0.0}

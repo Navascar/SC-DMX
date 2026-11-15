@@ -282,6 +282,7 @@ def test_presets_switch_brightness_levels(tmp_path):
     eng.handle({"cmd": "add_fixture", "profile": "Free Color WASH 243 · 24 кан. (8 сегментів)", "address": 1})
     eng.handle({"cmd": "add_fixture", "profile": "Dim+RGB (4 кан.)", "address": 25})
     bar, par = eng.fixtures
+    eng.handle({"cmd": "update_fixture", "id": par.id, "presets": True})  # пресети вручну для приладу з диммером
     eng.handle({"cmd": "set_master", "value": 100})          # майстер не зсуває пресет
     eng.handle({"cmd": "set_effect", "type": "rainbow", "ids": [bar.id, par.id]})
     eng.handle({"cmd": "preset", "ids": [bar.id, par.id], "n": 3})
@@ -333,3 +334,23 @@ def test_undo_redo(tmp_path, monkeypatch):
     eng.handle({"cmd": "redo"})
     eng.handle({"cmd": "set_master", "value": 10})
     assert eng.state()["redo"] is None
+
+
+def test_presets_only_for_bars(tmp_path):
+    eng = Engine(tmp_path / "cfg.json")
+    eng.handle({"cmd": "add_fixture", "profile": "Free Color WASH 243 · 24 кан. (8 сегментів)", "address": 1})
+    eng.handle({"cmd": "add_fixture", "profile": "Dim+RGB (4 кан.)", "address": 25})
+    bar, par = eng.fixtures
+    assert eng.state()["preset_fixtures"] == [bar.id]
+    # без вибору — лише бари
+    eng.handle({"cmd": "preset", "ids": [], "n": 2})
+    assert bar.preset == 2 and par.preset is None
+    # прилад без пресетів — помилка
+    with pytest.raises(ValueError):
+        eng.handle({"cmd": "preset", "ids": [par.id], "n": 2})
+    # галочка у властивостях вмикає пресети для будь-якого приладу
+    eng.handle({"cmd": "update_fixture", "id": par.id, "presets": True})
+    eng.handle({"cmd": "preset", "ids": [par.id], "n": 5})
+    assert par.preset == 5 and eng.render(0)[24] == 55
+    eng.handle({"cmd": "update_fixture", "id": par.id, "presets": False})
+    assert par.preset is None

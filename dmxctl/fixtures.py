@@ -54,6 +54,8 @@ class Fixture:
     # свої програми, коли червоний на максимумі, а програму вибирає рівень яскравості
     # (новий пресет кожні 10 DMX-значень) — пресет N так і відтворюється.
     preset: int | None = None
+    # Чи має прилад вбудовані пресети: None — визначити автоматично за профілем
+    presets: bool | None = None
 
     @classmethod
     def from_dict(cls, d: dict) -> "Fixture":
@@ -89,6 +91,13 @@ def preset_level(n: int) -> int:
     if not 1 <= n <= PRESET_COUNT:
         raise ValueError(f"пресет має бути 1..{PRESET_COUNT}")
     return min(255, n * PRESET_STEP + PRESET_STEP // 2)
+
+
+def has_presets(fx: Fixture) -> bool:
+    """Пресети доступні LED-барам: профілі WASH 243 — автоматично, інші — за галочкою."""
+    if fx.presets is not None:
+        return bool(fx.presets)
+    return fx.profile.startswith(WASH243)
 
 
 def segment_count(channels: list[str]) -> int:

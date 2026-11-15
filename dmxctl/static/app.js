@@ -114,7 +114,7 @@ function toast(text, info = false) {
 // Коли відкрите модальне вікно, усе поза ним неактивне. Тому меню та сповіщення
 // переносимо всередину верхнього відкритого вікна (або назад у <body>).
 function hostLayer(node) {
-  const open = [...document.querySelectorAll("dialog[open]")];
+  const open = [...document.querySelectorAll("dialog[open]")].filter((d) => d.matches(":modal"));
   const host = open[open.length - 1] || document.body;
   if (node.parentElement !== host) {
     try { node.hidePopover(); } catch { /* ignore */ }
@@ -483,11 +483,37 @@ function bindUpdate() {
   };
 }
 
+// ------------------------------------------------ перетягування вікон -----
+function bindDrag(win, handle) {
+  handle.addEventListener("pointerdown", (e) => {
+    if (e.target.closest("button")) return;
+    const r = win.getBoundingClientRect();
+    const dx = e.clientX - r.left, dy = e.clientY - r.top;
+    handle.setPointerCapture(e.pointerId);
+    const move = (ev) => {
+      win.style.left = Math.max(0, Math.min(innerWidth - r.width, ev.clientX - dx)) + "px";
+      win.style.top = Math.max(0, Math.min(innerHeight - 40, ev.clientY - dy)) + "px";
+      win.style.right = "auto";
+    };
+    const up = () => { handle.removeEventListener("pointermove", move); handle.removeEventListener("pointerup", up); };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", up);
+  });
+}
+
 // --------------------------------------------------------------- пресети ---
+// вибрані прилади, що мають вбудовані пресети (LED-бари)
 function presetTargets() {
-  const items = selItems();
-  const ids = [...new Set(items.map((i) => i.f.id))];
-  return ids.length ? S.fixtures.filter((f) => ids.includes(f.id)) : S.fixtures;
+  const bars = new Set(S.preset_fixtures || []);
+  const ids = [...new Set(selItems().map((i) => i.f.id))];
+  return S.fixtures.filter((f) => ids.includes(f.id) && bars.has(f.id));
+}
+
+function openPresets() {
+  if (!presetTargets().length) return toast("Виберіть LED-бар");
+  const dlg = $("#presetDlg");
+  renderPresets();
+  if (!dlg.open) dlg.show();
 }
 
 function buildPresets() {
@@ -497,7 +523,7 @@ function buildPresets() {
   for (let n = 1; n <= S.preset_count; n++) {
     const lvl = Math.min(255, n * 10 + 5);
     const b = el("button", { type: "button", textContent: n, title: `Пресет ${n} · Яскравість ${lvl}` });
-    b.onclick = () => send({ cmd: "preset", ids: [...selected], n });
+    b.onclick = () => send({ cmd: "preset", ids: presetTargets().map((f) => f.id), n });
     grid.append(b);
   }
 }
@@ -506,6 +532,13 @@ function renderPresets() {
   if (!S) return;
   buildPresets();
   const targets = presetTargets();
+  const btn = $("#openPresets");
+  btn.hidden = !targets.length;
+  btn.classList.toggle("on", targets.some((f) => f.preset));
+  btn.textContent = targets.length === 1 && targets[0].preset ? `▦ Пресет ${targets[0].preset}` : "▦ Пресети";
+  const dlg = $("#presetDlg");
+  if (!targets.length) { if (dlg.open) dlg.close(); return; }
+  $("#presetTitle").textContent = "Пресети · " + (targets.length === 1 ? targets[0].name : `${targets.length} бари`);
   const used = new Map();
   for (const f of targets) if (f.preset) used.set(f.preset, (used.get(f.preset) || 0) + 1);
   [...$("#presetGrid").children].forEach((b, i) => {
@@ -732,6 +765,7 @@ function openProps(id) {
   $("#propName").value = f.name;
   $("#propAddress").value = f.address;
   $("#propDimmer").value = f.dimmer;
+  $("#propPresets").checked = (S.preset_fixtures || []).includes(f.id);
   updatePropInfo();
   $("#propDlg").showModal();
 }
@@ -875,7 +909,8 @@ function bindProps() {
     sendThrottled("color", { cmd: "set_color", ids: [propId], dimmer: +$("#propDimmer").value }));
   $("#propSave").onclick = () => {
     send({ cmd: "update_fixture", id: propId, name: $("#propName").value.trim() || "Прилад",
-           address: +$("#propAddress").value, profile: $("#propProfile").value });
+           address: +$("#propAddress").value, profile: $("#propProfile").value,
+           presets: $("#propPresets").checked });
     $("#propDlg").close();
   };
   $("#propDup").onclick = () => { $("#propDlg").close(); duplicateFixture(propId); };
@@ -953,6 +988,7 @@ function fixtureMenu(id) {
         S.fixtures.filter((x) => x.profile === f.profile).forEach((x) => selected.add(x.id));
         refreshSelection(); syncSliders();
       } },
+    (S.preset_fixtures || []).some((x) => fixturesInSel.includes(x)) && { icon: "▦", label: "Пресети…", action: openPresets },
     fixturesInSel.length === 1 && { icon: "⚙", label: "Властивості…", key: "2×клік", action: () => openProps(fid) },
     fixturesInSel.length === 1 && { icon: "⧉", label: "Дублювати", action: () => duplicateFixture(fid) },
     whole.length > 0 && { sep: true },
@@ -1140,7 +1176,7 @@ function bindContextMenu() {
     if (target.matches("input:not([type=range]):not([type=checkbox]), textarea")) {
       return showMenu(e.clientX, e.clientY, inputMenu(target));
     }
-    if (!S || document.querySelector("dialog[open]")) return hideMenu();
+    if (!S || document.querySelector("dialog:modal")) return hideMenu();
     const cell = e.target.closest(".lamp.bar span");
     const tile = e.target.closest(".fx");
     const zone = e.target.closest("[data-zone]")?.dataset.zone;
@@ -1361,7 +1397,10 @@ function init() {
   buildSwatches();
   buildWheel();
   bindStatic();
-  $("#presetOff").onclick = () => send({ cmd: "preset", ids: [...selected], n: 0 });
+  $("#presetOff").onclick = () => send({ cmd: "preset", ids: presetTargets().map((f) => f.id), n: 0 });
+  $("#openPresets").onclick = openPresets;
+  $("#presetClose").onclick = () => $("#presetDlg").close();
+  bindDrag($("#presetDlg"), $("#presetDlg .drag-handle"));
   bindEditableOutputs();
   bindRangePaint();
   bindUpdate();
@@ -1398,7 +1437,7 @@ function init() {
     // у текстовому полі Ctrl+A виділяє лише його текст (стандартна поведінка)
     const t = e.target instanceof Element ? e.target : document.body;
     if (t.matches("input:not([type=range]):not([type=checkbox]), textarea, [contenteditable]")) return;  // у полях — своє скасування
-    if (document.querySelector("dialog[open]") || menuOpen()) {
+    if (document.querySelector("dialog:modal") || menuOpen()) {
       if (ctrlA || isUndo || isRedo) e.preventDefault();  // не виділяти текст вікна
       return;
     }
@@ -1409,7 +1448,10 @@ function init() {
     if (ctrlA) { e.preventDefault(); $("#selAll").click(); return; }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.code === "KeyB") send({ cmd: "blackout" });
-    if (e.key === "Escape") $("#selNone").click();
+    if (e.key === "Escape") {
+      if ($("#presetDlg").open) { $("#presetDlg").close(); return; }
+      $("#selNone").click();
+    }
     if (e.key === "Delete" || e.key === "Backspace" || e.key === "0") { e.preventDefault(); clearColors(); }
     // 1..9 — швидкий вибір статичного кольору
     if (/^[1-9]$/.test(e.key) && S.static_colors[+e.key - 1]) {

@@ -46,17 +46,13 @@
     <div class="panel-head">
       <h2>Колір</h2>
       <span id="selInfo" class="muted grow-text">Нічого не вибрано</span>
+      <button class="btn small presets-btn" id="openPresets" type="button" hidden>▦ Пресети</button>
     </div>
     <div class="picker-row">
       <canvas id="wheel" width="220" height="220" aria-label="Колірне коло"></canvas>
       <div class="swatches" id="swatches"></div>
     </div>
     <div class="sliders" id="sliders"></div>
-    <div class="panel-head presets-head">
-      <h2>Пресети приладу</h2>
-      <button class="btn small" id="presetOff" type="button">Вимкнути пресет</button>
-    </div>
-    <div id="presetGrid" class="preset-grid"></div>
     <div data-block="scenes" class="color-scenes">
     <div class="panel-head"><h2>Сцени</h2></div>
     <div class="form">
@@ -248,6 +244,7 @@
       <label>Яскравість <input id="propDimmer" type="range" min="0" max="255"><output id="propDimmerVal"></output></label>
     </div>
     <label>Профіль (режим DMX на приладі) <select id="propProfile"></select></label>
+    <label class="check"><input type="checkbox" id="propPresets"> Вбудовані пресети (LED-бар)</label>
     <p id="propInfo" class="info"></p>
     <p id="propWarn" class="warn" hidden></p>
     <details id="propTest" class="ch-test">
@@ -273,6 +270,17 @@
 </dialog>
 
 <div id="ctxMenu" class="ctx-menu" role="menu" popover="manual"></div>
+
+<dialog id="presetDlg" class="float-dlg">
+  <div class="dialog-head drag-handle">
+    <h2 id="presetTitle">Пресети</h2>
+    <button class="btn ghost" id="presetClose" type="button" aria-label="Закрити">✕</button>
+  </div>
+  <div id="presetGrid" class="preset-grid"></div>
+  <div class="row preset-actions">
+    <button class="btn" id="presetOff" type="button">Вимкнути пресет</button>
+  </div>
+</dialog>
 
 <dialog id="uiDlg" class="small-dlg ui-dlg">
   <h2 id="uiTitle"></h2>
