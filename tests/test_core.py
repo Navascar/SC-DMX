@@ -163,11 +163,13 @@ WASH24 = "Free Color WASH 243 · 24 кан. P001 (8 сегментів)"
 
 
 def test_wash243_profiles():
-    from dmxctl.fixtures import segment_count
-    assert segment_count(DEFAULT_PROFILES[WASH24]) == 8
-    assert len(DEFAULT_PROFILES[WASH24]) == 24
-    assert segment_count(DEFAULT_PROFILES["Free Color WASH 243 · 6 кан. E001 (2 сегменти)"]) == 2
-    assert DEFAULT_PROFILES["Free Color WASH 243 · 4 кан. d001 (Dim+RGB)"] == ["dim", "r", "g", "b"]
+    from dmxctl.fixtures import MODEL_PROFILES, segment_count
+    assert segment_count(MODEL_PROFILES[WASH24]) == 8
+    assert len(MODEL_PROFILES[WASH24]) == 24
+    assert segment_count(MODEL_PROFILES["Free Color WASH 243 · 6 кан. E001 (2 сегменти)"]) == 2
+    assert MODEL_PROFILES["Free Color WASH 243 · 4 кан. d001 (Dim+RGB)"] == ["dim", "r", "g", "b"]
+    # WASH 243 — модель бібліотеки, а не загальний профіль
+    assert not any(n.startswith("Free Color") for n in DEFAULT_PROFILES)
 
 
 def test_segment_colors_and_clear(tmp_path):
@@ -405,8 +407,10 @@ def test_fixture_library_modes_are_valid():
     lib = server.library()
     assert len(lib) > 1000
     for fx in lib:
-        for name, roles in fx["modes"]:
+        for name, roles, *_ in fx["modes"]:
             validate_profile(roles)   # кожна роль відома програмі
     found = server.search_library("adj mega bar")
     assert found and all("Mega" in f["n"] for f in found)
-    assert server.search_library("") == []
+    assert len(server.search_library("", 10)) == 10                 # без запиту — увесь розділ, порціями
+    assert all(f["t"] == "bar" for f in server.search_library("", 50, "bar"))
+    assert server.search_library("", 1)[0]["n"] == "WASH 243"        # вбудовані моделі — першими

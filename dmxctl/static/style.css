@@ -376,13 +376,42 @@ input, textarea, [contenteditable] { -webkit-user-select: text; user-select: tex
   .prog-row.prog-effect { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 }
 
-/* бібліотека приладів у вікні «Новий прилад» */
-.lib-results { display: grid; gap: var(--s-1); max-height: 280px; overflow-y: auto; margin-top: calc(-1 * var(--s-1)); }
-.lib-item { display: grid; gap: var(--s-1); padding: var(--s-2) 0; border-top: 1px solid var(--line); }
-.lib-item:first-child { border-top: 0; }
-.lib-name { font-size: var(--fs-md); color: var(--text); }
-.lib-name b { font-weight: 600; }
-.lib-name small { color: var(--muted); font-size: var(--fs-xs); margin-left: var(--s-1); }
+/* бібліотека приладів */
+.lib-pick { display: flex; align-items: center; gap: var(--s-3); }
+.lib-chosen { flex: 1; min-width: 0; color: var(--muted); font-size: var(--fs-sm); }
+.lib-chosen b { color: var(--text); font-weight: 600; font-size: var(--fs-md); }
+.lib-dlg { width: min(1180px, 96vw); height: min(860px, 92vh); display: none; flex-direction: column; padding: var(--s-5); }
+.lib-dlg[open] { display: flex; }
+.lib-layout { flex: 1; min-height: 0; display: grid; grid-template-columns: 260px 1fr; gap: var(--s-5); }
+.lib-types { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
+.lib-types button { display: flex; align-items: center; gap: var(--s-2); height: var(--control-h); padding: 0 var(--s-3);
+  border: 0; border-radius: var(--r-md); background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.lib-types button:hover { background: var(--raised); }
+.lib-types button.active { background: var(--accent-soft); color: var(--accent); }
+.lib-types button .n { margin-left: auto; color: var(--muted); font-size: var(--fs-sm); }
+.lib-types button.active .n { color: var(--accent); }
+.lib-types button:disabled { opacity: .45; cursor: default; background: none; }
+.lib-main { display: flex; flex-direction: column; gap: var(--s-3); min-height: 0; }
+.lib-main input[type=search] { width: 100%; }
+.lib-grid { flex: 1; min-height: 0; overflow-y: auto; display: grid; align-content: start;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: var(--s-3); }
+.lib-card { display: grid; gap: var(--s-2); padding: var(--s-3); border: 1px solid var(--line); border-radius: var(--r-lg);
+  background: var(--raised); align-content: start; }
+.lib-card:hover { border-color: var(--line-strong); }
+.lib-img { height: 96px; border-radius: var(--r-sm); background: #0b0d11; display: grid; place-items: center; }
+.lib-img svg { width: 100%; height: 100%; }
+.lib-maker { color: var(--muted); font-size: var(--fs-sm); }
+.lib-model { font-weight: 600; line-height: 1.25; text-wrap: balance; }
+.lib-colors { display: flex; gap: var(--s-1); flex-wrap: wrap; }
+.lib-colors span { font-size: var(--fs-xs); padding: 1px var(--s-2); border-radius: var(--r-full); border: 1px solid var(--line-strong);
+  color: var(--muted); display: inline-flex; align-items: center; gap: var(--s-1); }
+.lib-colors i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .lib-modes { display: flex; flex-wrap: wrap; gap: var(--s-1); }
 .lib-modes .btn.picked { border-color: var(--accent); color: var(--accent); }
-.lib-empty { color: var(--muted); font-size: var(--fs-sm); padding: var(--s-2) 0; }
+.lib-empty { grid-column: 1 / -1; color: var(--muted); padding: var(--s-5) 0; text-align: center; }
+.lib-foot { display: flex; justify-content: center; }
+@media (max-width: 720px) {
+  .lib-layout { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+  .lib-types { flex-direction: row; overflow-x: auto; }
+  .lib-types button { flex: none; }
+}

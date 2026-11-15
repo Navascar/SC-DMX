@@ -1371,52 +1371,118 @@ function bindContextMenu() {
 let addPending = null;
 
 // ------------------------------------------------- бібліотека приладів -----
-let libTimer = null;
-let libSeq = 0;
+const LIB_TYPES = [
+  ["", "Усі моделі"], ["bar", "LED-бари"], ["par", "Прожектори PAR і заливка"], ["head", "Голови"],
+  ["strobe", "Стробоскопи і блайндери"], ["matrix", "Матриці й панелі"], ["effect", "Ефекти"], ["other", "Інше"],
+];
+const LED = { r: "#ff4a4a", g: "#3ddc6b", b: "#4f7dff", w: "#f4f1e8", a: "#ffb02e", uv: "#a066ff" };
+const LED_NAME = { r: "R", g: "G", b: "B", w: "W", a: "A", uv: "UV" };
+const lib = { type: "", q: "", offset: 0, seq: 0, timer: null };
 let pendingProfile = null;
+let chosenModel = null;
 
 function libProfileName(fx, mode) {
-  return `${fx.m} ${fx.n} · ${mode[0]} (${mode[1].length} кан.)`;
+  return mode[2] || `${fx.m} ${fx.n} · ${mode[0]} (${mode[1].length} кан.)`;
 }
 
-async function searchLibrary() {
-  const q = $("#libSearch").value.trim();
-  const box = $("#libResults");
-  if (q.length < 2) { box.hidden = true; box.replaceChildren(); return; }
-  const seq = ++libSeq;
-  let data = { results: [] };
-  try {
-    data = await (await fetch(`/api/library?q=${encodeURIComponent(q)}`)).json();
-  } catch { /* сервер недоступний */ }
-  if (seq !== libSeq) return;  // прийшла відповідь на застарілий запит
-  const words = q.toLowerCase().split(/\s+/);
-  // вбудовані профілі (WASH 243 тощо) — теж у результатах
-  const builtin = Object.keys(S.profiles).filter((p) => words.every((w) => p.toLowerCase().includes(w)));
-  const rows = [];
-  if (builtin.length) {
-    const modes = el("div", { className: "lib-modes" });
-    for (const name of builtin.slice(0, 12)) {
-      modes.append(Object.assign(el("button", { type: "button", className: "btn small", textContent: name }),
-        { onclick: () => pickProfile(name) }));
+function fxColors(fx) {
+  const set = new Set();
+  for (const m of fx.modes) for (const r of m[1]) if (LED[r]) set.add(r);
+  return ["r", "g", "b", "w", "a", "uv"].filter((c) => set.has(c));
+}
+const fxSegments = (fx) => Math.max(1, ...fx.modes.map((m) => Math.max(...["r", "g", "b", "w"].map((c) => m[1].filter((x) => x === c).length))));
+
+// Схематичне зображення приладу: форма за типом, світлодіоди — його кольори, у барів — його сегменти
+function fixtureArt(fx) {
+  const cols = fxColors(fx).map((c) => LED[c]);
+  const pal = cols.length ? cols : [LED.w];
+  const body = 'fill="#1b1f27" stroke="#4a5160" stroke-width="2"';
+  const led = (cx, cy, r, i) => `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${pal[i % pal.length]}" opacity=".9"/>`;
+  let g = "";
+  switch (fx.t) {
+    case "bar": {
+      const n = Math.min(16, fxSegments(fx));
+      const w = 200, x0 = 20, cw = (w - 8) / Math.max(n, 1);
+      g = `<rect x="${x0}" y="34" width="${w}" height="28" rx="6" ${body}/>` +
+          `<path d="M${x0 + 20} 62 l-8 14 h16 z M${x0 + w - 20} 62 l-8 14 h16 z" fill="#2a2f3a"/>`;
+      for (let i = 0; i < n; i++) g += `<rect x="${x0 + 4 + i * cw + 1.5}" y="38" width="${cw - 3}" height="20" rx="3" fill="${pal[i % pal.length]}" opacity=".9"/>`;
+      break;
     }
-    rows.push(el("div", { className: "lib-item" }, el("div", { className: "lib-name", innerHTML: "<b>Профілі програми</b>" }), modes));
-  }
-  for (const fx of data.results) {
-    const modes = el("div", { className: "lib-modes" });
-    for (const mode of fx.modes) {
-      const b = el("button", { type: "button", className: "btn small", title: mode[1].join(" "),
-                               textContent: `${mode[0]} · ${mode[1].length} кан.` });
-      b.onclick = () => importProfile(fx, mode, b);
-      modes.append(b);
+    case "head":
+      g = `<rect x="95" y="70" width="50" height="16" rx="4" ${body}/>` +
+          `<path d="M100 70 V44 M140 70 V44" stroke="#4a5160" stroke-width="6" stroke-linecap="round"/>` +
+          `<circle cx="120" cy="40" r="26" ${body}/>` + [0, 1, 2, 3, 4, 5].map((i) =>
+            led(120 + 13 * Math.cos(i * Math.PI / 3), 40 + 13 * Math.sin(i * Math.PI / 3), 5, i)).join("") + led(120, 40, 5, 6);
+      break;
+    case "strobe":
+      g = `<rect x="45" y="22" width="150" height="54" rx="8" ${body}/>` +
+          `<rect x="57" y="40" width="126" height="18" rx="9" fill="${pal.includes(LED.w) ? LED.w : pal[0]}" opacity=".95"/>`;
+      break;
+    case "matrix":
+      g = `<rect x="70" y="8" width="100" height="80" rx="8" ${body}/>`;
+      for (let y = 0; y < 4; y++) for (let x = 0; x < 5; x++) g += led(84 + x * 18, 22 + y * 18, 6, x + y);
+      break;
+    case "effect":
+      g = `<circle cx="120" cy="48" r="34" ${body}/>` + [...Array(8)].map((_, i) =>
+        `<path d="M120 48 L${120 + 30 * Math.cos(i * Math.PI / 4)} ${48 + 30 * Math.sin(i * Math.PI / 4)}" stroke="${pal[i % pal.length]}" stroke-width="3" stroke-linecap="round" opacity=".85"/>`).join("");
+      break;
+    default: {  // PAR / заливка / інше: корпус-«банка» з LED-матрицею
+      g = `<path d="M96 80 l-10 10 h68 l-10 -10" fill="#2a2f3a"/><circle cx="120" cy="46" r="38" ${body}/><circle cx="120" cy="46" r="30" fill="#0f1217"/>`;
+      const pts = [[0, 0], ...[0, 1, 2, 3, 4, 5].map((i) => [16 * Math.cos(i * Math.PI / 3), 16 * Math.sin(i * Math.PI / 3)])];
+      pts.forEach(([dx, dy], i) => (g += led(120 + dx, 46 + dy, 6, i)));
     }
-    const name = el("div", { className: "lib-name" }, el("b", { textContent: fx.m }), ` ${fx.n}`,
-                    el("small", { textContent: fx.src }));
-    rows.push(el("div", { className: "lib-item" }, name, modes));
   }
-  if (!rows.length) rows.push(el("div", { className: "lib-empty",
-    textContent: `Нічого не знайдено серед ${data.total || 0} приладів. Спробуйте коротший запит або створіть профіль вручну.` }));
-  box.replaceChildren(...rows);
-  box.hidden = false;
+  return `<svg viewBox="0 0 240 96" role="img" aria-label="${fx.t}">${g}</svg>`;
+}
+
+function libCard(fx) {
+  const card = el("div", { className: "lib-card" });
+  const img = el("div", { className: "lib-img", innerHTML: fixtureArt(fx) });
+  const colors = el("div", { className: "lib-colors" }, ...fxColors(fx).map((c) => {
+    const i = el("i"); i.style.background = LED[c];
+    return el("span", {}, i, LED_NAME[c]);
+  }));
+  const modes = el("div", { className: "lib-modes" }, ...fx.modes.map((mode) => {
+    const b = el("button", { type: "button", className: "btn small", title: mode[1].join(" "),
+                             textContent: `${mode[0]} · ${mode[1].length} кан.` });
+    b.onclick = () => importProfile(fx, mode, b);
+    return b;
+  }));
+  card.append(img, el("div", { className: "lib-maker", textContent: fx.m }),
+              el("div", { className: "lib-model", textContent: fx.n }), colors, modes);
+  return card;
+}
+
+async function loadLibrary(append = false) {
+  const seq = ++lib.seq;
+  if (!append) lib.offset = 0;
+  const params = new URLSearchParams({ q: lib.q, type: lib.type, offset: lib.offset, limit: 60 });
+  let data = { results: [], counts: {}, more: false, total: 0 };
+  try { data = await (await fetch(`/api/library?${params}`)).json(); } catch { /* сервер недоступний */ }
+  if (seq !== lib.seq) return;  // відповідь на застарілий запит
+  // розділи з кількістю моделей для поточного пошуку
+  const all = Object.values(data.counts).reduce((x, y) => x + y, 0);
+  $("#libTypes").replaceChildren(...LIB_TYPES.map(([key, label]) => {
+    const n = key ? data.counts[key] || 0 : all;
+    const b = el("button", { type: "button", className: lib.type === key ? "active" : "", disabled: !n && lib.type !== key },
+      el("span", { textContent: label }), el("span", { className: "n", textContent: n }));
+    b.onclick = () => { lib.type = key; loadLibrary(); };
+    return b;
+  }));
+  const grid = $("#libGrid");
+  if (!append) { grid.replaceChildren(); grid.scrollTop = 0; }
+  for (const fx of data.results) grid.append(libCard(fx));
+  if (!grid.children.length) grid.append(el("div", { className: "lib-empty",
+    textContent: "Нічого не знайдено. Спробуйте коротший запит або інший розділ." }));
+  lib.offset += data.results.length;
+  $("#libMore").hidden = !data.more;
+}
+
+function openLibrary() {
+  lib.q = $("#libSearch").value.trim();
+  $("#libDlg").showModal();
+  loadLibrary();
+  $("#libSearch").focus();
 }
 
 function pickProfile(name) {
@@ -1429,6 +1495,9 @@ function importProfile(fx, mode, btn) {
   if (!$("#addName").value.trim()) $("#addName").value = fx.n;
   document.querySelectorAll(".lib-modes .btn.picked").forEach((b) => b.classList.remove("picked"));
   btn.classList.add("picked");
+  chosenModel = fx;
+  $("#libChosen").replaceChildren(el("b", { textContent: `${fx.m} ${fx.n}` }), el("br"), `Режим: ${mode[0]} · ${mode[1].length} кан.`);
+  $("#libDlg").close();
   if (S.profiles[name]) return pickProfile(name);
   pendingProfile = name;
   send({ cmd: "save_profile", name, channels: mode[1] });
@@ -1445,7 +1514,8 @@ function openAdd() {
   $("#addCount").value = 1;
   $("#addName").value = "";
   $("#libSearch").value = "";
-  $("#libResults").hidden = true;
+  chosenModel = null;
+  $("#libChosen").textContent = "Модель не вибрано — виберіть з бібліотеки або профіль вручну";
   updateAddInfo();
   $("#addDlg").showModal();
 }
@@ -1520,7 +1590,16 @@ function bindSettings() {
   $("#openAdd").onclick = openAdd;
   for (const b of document.querySelectorAll("[data-open-add]")) b.onclick = openAdd;
   $("#addCount").addEventListener("input", updateAddInfo);
-  $("#libSearch").addEventListener("input", () => { clearTimeout(libTimer); libTimer = setTimeout(searchLibrary, 150); });
+  $("#libSearch").addEventListener("input", () => {
+    clearTimeout(lib.timer);
+    lib.timer = setTimeout(() => { lib.q = $("#libSearch").value.trim(); loadLibrary(); }, 150);
+  });
+  $("#libMore").onclick = () => loadLibrary(true);
+  $("#openLibrary").onclick = openLibrary;
+  $("#addProfile").addEventListener("change", () => {
+    chosenModel = null;
+    $("#libChosen").textContent = "Профіль вибрано вручну";
+  });
   $("#addAddress").addEventListener("input", updateAddInfo);
   $("#addFixture").onclick = () => {
     addPending = S.fixtures.length;

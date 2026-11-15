@@ -150,7 +150,9 @@ def load_ofl(root: Path) -> list[dict]:
             if roles and usable(roles) and len(roles) <= 512:
                 modes.append([mode.get("shortName") or mode.get("name") or f"{len(roles)}ch", roles])
         if modes:
-            out.append({"m": maker, "n": fx.get("name", path.stem), "src": "OFL", "modes": modes})
+            name = fx.get("name", path.stem)
+            out.append({"m": maker, "n": name, "t": fixture_type((fx.get("categories") or [""])[0], name, modes),
+                        "modes": modes})
     return out
 
 
@@ -213,8 +215,33 @@ def load_qlc(root: Path) -> list[dict]:
             if roles and usable(roles):
                 modes.append([mode.get("Name") or f"{len(roles)}ch", roles])
         if modes:
-            out.append({"m": maker, "n": model, "src": "QLC+", "modes": modes})
+            out.append({"m": maker, "n": model, "t": fixture_type(t.findtext(ns + "Type") or "", model, modes),
+                        "modes": modes})
     return out
+
+
+# Тип приладу для поділу бібліотеки на розділи
+TYPE_MAP = {
+    "color changer": "par", "dimmer": "par",
+    "pixel bar": "bar", "led bar (beams)": "bar", "led bar (pixels)": "bar",
+    "moving head": "head",
+    "strobe": "strobe", "blinder": "strobe",
+    "matrix": "matrix",
+    "flower": "effect", "effect": "effect", "scanner": "effect", "barrel scanner": "effect",
+    "laser": "effect", "fan": "effect",
+}
+
+
+def fixture_type(raw: str, name: str, modes: list) -> str:
+    t = TYPE_MAP.get((raw or "").strip().lower(), "other")
+    n = name.lower()
+    if t in ("par", "other") and re.search(r"\bbar\b|batten|strip|tube|pixel", n):
+        return "bar"
+    if t in ("par", "other") and re.search(r"matrix|panel|blinder", n):
+        return "matrix" if "matrix" in n or "panel" in n else "strobe"
+    if t == "par" and max(m[1].count("r") for m in modes) >= 4:
+        return "bar"
+    return t
 
 
 def norm(s: str) -> str:
@@ -235,8 +262,7 @@ def main() -> None:
         seen.add(key)
         merged.append(fx)
     merged.sort(key=lambda f: (f["m"].lower(), f["n"].lower()))
-    data = {"sources": {"OFL": "Open Fixture Library (MIT)", "QLC+": "QLC+ fixture definitions (Apache-2.0)"},
-            "fixtures": merged}
+    data = {"fixtures": merged}  # ліцензії джерел — у THIRD_PARTY_LICENSES.md
     OUT.write_bytes(gzip.compress(json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8"), 9))
     print(f"OFL: {len(ofl)}, QLC+: {len(qlc)}, разом без дублікатів: {len(merged)} приладів, "
           f"{sum(len(f['modes']) for f in merged)} режимів → {OUT} ({OUT.stat().st_size // 1024} КБ)")

@@ -12,7 +12,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from .effects import EFFECTS, effect_color, hex_to_rgb
-from .fixtures import (COLOR_KEYS, DEFAULT_PROFILES, LEGACY_PROFILES, PRESET_COUNT, PROGRAMS, Fixture, find_overlaps,
+from .fixtures import (COLOR_KEYS, DEFAULT_PROFILES, LEGACY_PROFILES, MODEL_PROFILES, PRESET_COUNT, PROGRAMS, Fixture, find_overlaps,
                        has_presets, preset_level, render_fixture, segment_count, validate_fixture, validate_profile)
 from .outputs import DMX_CHANNELS, OUTPUT_TYPES, create_output
 
@@ -107,6 +107,7 @@ class Engine:
         self.fixtures = [Fixture.from_dict(f) for f in cfg.get("fixtures", [])]
         for f in self.fixtures:  # міграція зі старих версій
             f.profile = LEGACY_PROFILES.get(f.profile, f.profile)
+            self._ensure_profile(f.profile)
             if f.preset is not None and not 1 <= f.preset <= PRESET_COUNT:
                 f.preset = None
         self.scenes = cfg.get("scenes", {})
@@ -131,6 +132,13 @@ class Engine:
         self._dirty_save = False
 
     # --------------------------------------------------------- helpers ----
+    def _ensure_profile(self, name: str) -> str:
+        """Профіль моделі з бібліотеки (напр. WASH 243) додається, щойно він потрібен."""
+        name = LEGACY_PROFILES.get(name, name)
+        if name not in self.profiles and name in MODEL_PROFILES:
+            self.profiles[name] = list(MODEL_PROFILES[name])
+        return name
+
     def _fx(self, fid: str) -> Fixture:
         for f in self.fixtures:
             if f.id == fid:
@@ -381,7 +389,7 @@ class Engine:
 
     def cmd_add_fixture(self, m):
         count = max(1, min(64, int(m.get("count", 1))))
-        profile = LEGACY_PROFILES.get(m["profile"], m["profile"])
+        profile = self._ensure_profile(m["profile"])
         if profile not in self.profiles:
             raise ValueError(f"невідомий профіль «{profile}»")
         width = len(self.profiles[profile])
@@ -401,7 +409,7 @@ class Engine:
         fx = self._fx(m["id"])
         changes = {k: m[k] for k in ("name", "address", "profile") if k in m}
         if "profile" in changes:
-            changes["profile"] = LEGACY_PROFILES.get(changes["profile"], changes["profile"])
+            changes["profile"] = self._ensure_profile(changes["profile"])
         trial = Fixture.from_dict({**fx.to_dict(), **changes})
         trial.address = int(trial.address)
         validate_fixture(trial, self.profiles)

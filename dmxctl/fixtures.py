@@ -18,15 +18,26 @@ ROLES = set(COLOR_KEYS) | {"dim", "strobe", "zero", "full", "macro", "speed"}
 WASH243 = "Free Color WASH 243"
 
 # Режими WASH 243 — за інструкцією виробника (код режиму показує дисплей бару).
+# Це модель бібліотеки: профіль зʼявляється в програмі, коли модель вибрано.
+WASH243_MODES: list[tuple[str, str, list[str]]] = [   # (режим, назва профілю, ролі)
+    ("P001 · 8 сегментів", f"{WASH243} · 24 кан. P001 (8 сегментів)", ["r", "g", "b"] * 8),
+    ("L001 · 4 сегменти", f"{WASH243} · 12 кан. L001 (4 сегменти)", ["r", "g", "b"] * 4),
+    ("H001 · Dim, строб, програми, RGB", f"{WASH243} · 8 кан. H001 (Dim, строб, програми, RGB)",
+     ["dim", "strobe", "macro", "speed", "r", "g", "b", "zero"]),       # CH8 = 0, інакше CH5–7 не працюють
+    ("E001 · 2 сегменти", f"{WASH243} · 6 кан. E001 (2 сегменти)", ["r", "g", "b"] * 2),
+    ("d001 · Dim+RGB", f"{WASH243} · 4 кан. d001 (Dim+RGB)", ["dim", "r", "g", "b"]),
+    ("C001 · RGB", f"{WASH243} · 3 кан. C001 (RGB)", ["r", "g", "b"]),
+    ("A001 · програми", f"{WASH243} · 2 кан. A001 (програми)", ["macro", "speed"]),
+]
+# Профілі моделей, які програма знає сама (додаються, щойно потрібні приладу)
+MODEL_PROFILES: dict[str, list[str]] = {name: roles for _, name, roles in WASH243_MODES}
+# Моделі, вбудовані в бібліотеку поверх зібраної бази
+BUILTIN_MODELS: list[dict] = [{
+    "m": "Free Color", "n": "WASH 243", "t": "bar",
+    "modes": [[mode, roles, name] for mode, name, roles in WASH243_MODES],
+}]
+
 DEFAULT_PROFILES: dict[str, list[str]] = {
-    f"{WASH243} · 24 кан. P001 (8 сегментів)": ["r", "g", "b"] * 8,
-    f"{WASH243} · 12 кан. L001 (4 сегменти)": ["r", "g", "b"] * 4,
-    f"{WASH243} · 8 кан. H001 (Dim, строб, програми, RGB)":
-        ["dim", "strobe", "macro", "speed", "r", "g", "b", "zero"],  # CH8 = 0, інакше CH5–7 не працюють
-    f"{WASH243} · 6 кан. E001 (2 сегменти)": ["r", "g", "b"] * 2,
-    f"{WASH243} · 4 кан. d001 (Dim+RGB)": ["dim", "r", "g", "b"],
-    f"{WASH243} · 3 кан. C001 (RGB)": ["r", "g", "b"],
-    f"{WASH243} · 2 кан. A001 (програми)": ["macro", "speed"],
     "RGB (3 кан.)": ["r", "g", "b"],
     "RGBW (4 кан.)": ["r", "g", "b", "w"],
     "Dim+RGB (4 кан.)": ["dim", "r", "g", "b"],

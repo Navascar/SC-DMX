@@ -272,7 +272,7 @@ class SacnOutput(Output):
 
 # ------------------------------------------------------------------ uDMX ----
 # Anyma uDMX та клони: USB-пристрій без COM-порту, керується vendor control
-# transfer-ами через libusb (як у QLC+ та офіційній утиліті uDMX).
+# transfer-ами через libusb (як в офіційній утиліті uDMX).
 UDMX_VID = 0x16C0
 UDMX_PID = 0x05DC
 UDMX_SET_CHANNEL_RANGE = 2   # bRequest: wValue = к-сть каналів, wIndex = перший канал (з 0)
@@ -344,7 +344,7 @@ def find_udmx_devices() -> list[dict]:
 class UDmxOutput(Output):
     kind = "udmx"
     refresh_hz = 30.0
-    # Шлемо кадр безперервно (~30/с), як QLC+. Багато клонів uDMX передають DMX лише
+    # Шлемо кадр безперервно (~30/с), як світлові пульти. Багато клонів uDMX передають DMX лише
     # після запису по USB, а дешеві прилади (зокрема LED-бари) ігнорують одиночні
     # кадри й рідкий сигнал — колір тоді змінювався лише під час руху повзунка.
     keepalive_s = None
