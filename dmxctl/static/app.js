@@ -168,6 +168,8 @@ function onMessage(m) {
     renderUpdate();
   } else if (m.type === "bye") {
     quitting = true;
+  } else if (m.type === "open_here") {
+    window.open(m.url, "_blank", "noopener");  // інший пристрій у мережі — відкриваємо в ньому самому
   } else if (m.type === "error") {
     pendingUndo = null;
     if (addPending !== null) addPending = null;
@@ -1281,6 +1283,23 @@ function generalMenu() {
   ];
 }
 
+// Зовнішні посилання відкриваються браузером користувача за замовчуванням (через програму),
+// а не у вікні програми чи в Edge.
+function bindExternalLinks() {
+  const handler = (e) => {
+    const a = e.target instanceof Element && e.target.closest("a[href]");
+    if (!a) return;
+    const url = new URL(a.href, location.href);
+    if (url.origin === location.origin || !/^https?:$/.test(url.protocol)) return;
+    if (e.type === "auxclick" && e.button !== 1) return;
+    e.preventDefault();
+    send({ cmd: "open_url", url: url.href });
+    toast("Відкриваю в браузері…", true);
+  };
+  document.addEventListener("click", handler, true);
+  document.addEventListener("auxclick", handler, true);
+}
+
 function bindContextMenu() {
   // заборона виділення тексту поза полями введення (і міні-меню браузера разом з ним)
   document.addEventListener("selectstart", (e) => {
@@ -1532,6 +1551,7 @@ function init() {
   bindProps();
   bindTest();
   bindContextMenu();
+  bindExternalLinks();
   bindEffects();
   bindScenes();
   bindSettings();

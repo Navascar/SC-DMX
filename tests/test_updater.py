@@ -64,3 +64,17 @@ def test_install_rejects_path_traversal(tmp_path):
         zf.writestr("../../evil.txt", "x")
     with pytest.raises(RuntimeError):
         updater.install_from_zip(zpath, app)
+
+
+def test_open_external_only_http(monkeypatch):
+    import webbrowser
+    import sys
+    from dmxctl import server
+    opened = []
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(webbrowser, "open", lambda url: opened.append(url) or True)
+    assert server.open_external("https://github.com/Navascar/SC-DMX/releases")
+    assert not server.open_external("file:///C:/Windows/System32/calc.exe")
+    assert not server.open_external("javascript:alert(1)")
+    assert not server.open_external("https:///nohost")
+    assert opened == ["https://github.com/Navascar/SC-DMX/releases"]

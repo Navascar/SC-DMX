@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import logging.handlers
+import os
 import sys
 import weakref
 from pathlib import Path
@@ -66,6 +67,16 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
             if data.get("cmd") == "apply_update":
                 asyncio.create_task(apply_update(app))
                 continue
+            if data.get("cmd") == "open_url":
+                # посилання відкриваються браузером користувача за замовчуванням —
+                # лише з вікна на цьому ж комп'ютері; іншим пристроям — повертаємо назад
+                url = str(data.get("url", ""))
+                if _is_local(request):
+                    if not await asyncio.get_running_loop().run_in_executor(None, open_external, url):
+                        await ws.send_json({"type": "error", "message": "Не вдалося відкрити посилання"})
+                else:
+                    await ws.send_json({"type": "open_here", "url": url})
+                continue
             if data.get("cmd") == "quit":
                 await broadcast(app, {"type": "bye"})
                 request_stop(app, 0)
@@ -87,6 +98,27 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
     if not _open_sockets(app):
         app[WATCH]["last_close"] = asyncio.get_running_loop().time()
     return ws
+
+
+def _is_local(request: web.Request) -> bool:
+    return (request.remote or "") in ("127.0.0.1", "::1", "localhost")
+
+
+def open_external(url: str) -> bool:
+    """Відкриває http(s)-посилання у браузері за замовчуванням операційної системи."""
+    import webbrowser
+    from urllib.parse import urlparse
+    parts = urlparse(url)
+    if parts.scheme not in ("http", "https") or not parts.netloc:
+        return False
+    try:
+        if sys.platform == "win32":
+            os.startfile(url)  # noqa: S606 — саме так Windows відкриває браузер за замовчуванням
+            return True
+        return webbrowser.open(url)
+    except Exception:  # noqa: BLE001
+        log.exception("Не вдалося відкрити %s", url)
+        return False
 
 
 def _open_sockets(app: web.Application) -> list:
