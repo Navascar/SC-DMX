@@ -159,10 +159,6 @@ dialog::backdrop { background: #000a; }
   .patch th:nth-child(4), .patch td:nth-child(4) { display: none; }
 }
 
-.update-banner { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 12px 14px 0;
-  padding: 10px 14px; border-radius: var(--radius); background: rgba(79,140,255,.14); border: 1px solid var(--accent); }
-.update-banner span { flex: 1; min-width: 200px; }
-.update-banner.err { border-color: var(--danger); background: rgba(229,72,77,.12); }
 .offline { position: fixed; inset: 0; background: #000b; z-index: 40; display: grid; place-items: center; text-align: center; }
 .offline > div { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 22px 28px; }
 .about { display: flex; gap: 16px; align-items: center; margin-bottom: 12px; }
@@ -185,3 +181,28 @@ dialog::backdrop { background: #000a; }
   border-radius: var(--radius); color: var(--muted); }
 .empty-state .btn { margin-top: 10px; }
 @media (max-width: 720px) { .grid3 { grid-template-columns: 1fr 1fr; } .grid3 label:first-child { grid-column: 1 / -1; } }
+
+.update-btn { background: var(--ok); border-color: var(--ok); color: #06210f; font-weight: 700;
+  animation: pulseUpd 2s ease-in-out infinite; }
+.update-btn.busy { animation: none; background: var(--panel-2); border-color: var(--ok); color: var(--ok); }
+.update-btn.err { animation: none; background: transparent; border-color: var(--danger); color: var(--danger); }
+@keyframes pulseUpd { 50% { box-shadow: 0 0 0 4px rgba(62,207,142,.25); } }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.ctx-menu { position: fixed; z-index: 60; min-width: 220px; max-width: 300px; padding: 5px;
+  background: #1c2029; border: 1px solid #343a47; border-radius: 10px; box-shadow: 0 12px 32px #000a; }
+.ctx-menu .item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 10px; border: 0;
+  background: none; color: var(--text); font: inherit; text-align: left; border-radius: 6px; cursor: pointer; }
+.ctx-menu .item:hover, .ctx-menu .item:focus { background: var(--accent); color: #fff; outline: none; }
+.ctx-menu .item.danger { color: #ff8a8d; }
+.ctx-menu .item.danger:hover { background: var(--danger); color: #fff; }
+.ctx-menu .item:disabled { opacity: .4; cursor: default; background: none; }
+.ctx-menu .item .ico { width: 16px; text-align: center; opacity: .85; }
+.ctx-menu .item .key { margin-left: auto; color: var(--muted); font-size: 11px; }
+.ctx-menu .sep { height: 1px; background: #343a47; margin: 5px 4px; }
+.ctx-menu .title { padding: 5px 10px 3px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ctx-menu .chips { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; padding: 4px 8px 6px; }
+.ctx-menu .chips button { height: 22px; border-radius: 5px; border: 1px solid #0007; cursor: pointer; }
+.ctx-menu .chips button:hover { outline: 2px solid #fff; }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.ctx-menu .item:hover .key, .ctx-menu .item:focus .key { color: #ffffffb0; }

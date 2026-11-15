@@ -18,16 +18,11 @@
     <input id="master" type="range" min="0" max="255" value="255">
     <output id="masterVal">100%</output>
   </div>
+  <button id="updateBtn" class="btn update-btn" hidden></button>
   <button id="blackout" class="btn danger">BLACKOUT</button>
   <button id="openSettings" class="btn ghost" title="Налаштування">⚙ Налаштування</button>
 </header>
 
-<div id="updateBanner" class="update-banner" hidden>
-  <span id="updateText"></span>
-  <button class="btn small ghost" id="updateNotesBtn">Що нового</button>
-  <button class="btn small primary" id="updateNow">Оновити зараз</button>
-  <button class="btn small ghost" id="updateLater" title="Нагадати пізніше">✕</button>
-</div>
 <div id="offline" class="offline" hidden>
   <div><b>Немає зв'язку з програмою</b><br><span id="offlineText">Підключення…</span></div>
 </div>
@@ -44,7 +39,7 @@
       </div>
     </div>
     <div id="fixtureGrid" class="fixture-grid"></div>
-    <p class="hint">Клік — вибір одного приладу. <b>Shift + клік</b> — додати до вибору ще прилади. У LED-барів (WASH 243 у режимах 6/12/24 кан.) клік по сегменту вибирає окремий сегмент. Delete / 0 — очистити кольори.</p>
+    <p class="hint">Клік — вибір одного приладу. <b>Shift + клік</b> — додати до вибору ще прилади. У приладів із сегментами клік по сегменту вибирає окремий сегмент. Подвійний клік — властивості приладу, правий клік — меню. Delete / 0 — очистити кольори.</p>
   </section>
 
   <section class="panel color-panel">
@@ -84,7 +79,7 @@
         <div id="effColors" class="eff-colors"></div>
         <button class="btn small" id="effAddColor" title="Додати поточний колір">＋</button>
       </div>
-      <label class="check"><input type="checkbox" id="effBySeg" checked> по сегментах (ефект біжить уздовж LED-барів, напр. WASH 243)</label>
+      <label class="check"><input type="checkbox" id="effBySeg" checked> по сегментах (ефект біжить уздовж LED-барів)</label>
       <p class="hint">Порожня палітра — ефект бере власні кольори приладів (для пульсації, стробу, біжучого вогню).</p>
       <div class="row">
         <button class="btn primary" id="effApply">Запустити на вибраних</button>
@@ -228,6 +223,46 @@
     </div>
   </div>
 </dialog>
+
+<dialog id="updDlg" class="small-dlg">
+  <form method="dialog" class="dialog-head">
+    <h2 id="updTitle">Доступне оновлення</h2>
+    <button class="btn ghost" value="close">✕</button>
+  </form>
+  <p id="updSubtitle" class="muted"></p>
+  <pre id="updNotes" class="notes"></pre>
+  <p class="hint">Програма перезапуститься приблизно за 10 секунд. Світло залишиться увімкненим, налаштування збережуться.</p>
+  <p id="updBlocked" class="warn" hidden></p>
+  <div class="row">
+    <button class="btn primary" id="updInstall" type="button">Встановити оновлення</button>
+    <button class="btn" type="button" onclick="this.closest('dialog').close()">Пізніше</button>
+  </div>
+</dialog>
+
+<dialog id="propDlg" class="small-dlg">
+  <form method="dialog" class="dialog-head">
+    <h2>Властивості приладу</h2>
+    <button class="btn ghost" value="close">✕</button>
+  </form>
+  <div class="form">
+    <label>Назва <input id="propName"></label>
+    <div class="grid2">
+      <label>Стартова адреса <input id="propAddress" type="number" min="1" max="512"></label>
+      <label>Яскравість <input id="propDimmer" type="range" min="0" max="255"><output id="propDimmerVal"></output></label>
+    </div>
+    <label>Профіль (режим DMX на приладі) <select id="propProfile"></select></label>
+    <p id="propInfo" class="hint"></p>
+    <p id="propWarn" class="warn" hidden></p>
+    <div class="row">
+      <button class="btn primary" id="propSave" type="button">Зберегти</button>
+      <button class="btn" id="propDup" type="button">Дублювати</button>
+      <span class="grow"></span>
+      <button class="btn danger" id="propDelete" type="button">Видалити</button>
+    </div>
+  </div>
+</dialog>
+
+<div id="ctxMenu" class="ctx-menu" role="menu" hidden></div>
 
 <div id="toast" class="toast" hidden></div>
 <script src="/static/app.js"></script>

@@ -151,6 +151,7 @@ function renderFixtures() {
           e.stopPropagation();
           pick(`${f.id}#${k}`, e.shiftKey);
         };
+        cell.ondblclick = (e) => { e.stopPropagation(); openProps(f.id); };
         lamp.append(cell);
       }
     } else {
@@ -164,6 +165,14 @@ function renderFixtures() {
       el("div", { className: "fx-badge", textContent: effIds.has(f.id) ? "● " + S.effects[S.effect.type] : "" }));
     tile.dataset.id = f.id;
     tile.onclick = (e) => pick(f.id, e.shiftKey);
+    tile.ondblclick = (e) => {
+      e.preventDefault();
+      selected.clear();
+      selected.add(f.id);
+      refreshSelection();
+      syncSliders();
+      openProps(f.id);
+    };
     grid.append(tile);
   }
 }
@@ -185,8 +194,17 @@ function pick(id, multi) {
     selected.clear();
     if (!only) selected.add(id);
   }
-  renderFixtures();
+  refreshSelection();
   syncSliders();
+}
+
+// оновлює підсвітку вибору, не перебудовуючи плитки
+function refreshSelection() {
+  for (const tile of document.querySelectorAll(".fx")) {
+    tile.classList.toggle("sel", selected.has(tile.dataset.id));
+    const bar = tile.querySelector(".lamp.bar");
+    if (bar) [...bar.children].forEach((c, k) => c.classList.toggle("sel", selected.has(`${tile.dataset.id}#${k}`)));
+  }
 }
 
 function updateLive(m) {
@@ -359,47 +377,54 @@ function renderUpdate() {
   $("#aboutRepo").textContent = "github.com/" + u.repo;
   $("#aboutRepo").href = u.page || `https://github.com/${u.repo}/releases`;
   const busy = u.status === "installing" || u.status === "restarting";
-  let about = u.status === "checking" ? "перевірка…"
+  $("#aboutUpdate").textContent = u.status === "checking" ? "перевірка…"
     : busy ? u.progress
     : u.error ? u.error
     : u.available ? `доступна версія ${u.latest}`
     : u.latest ? `встановлено останню версію (${u.current})` : "";
-  $("#aboutUpdate").textContent = about;
   $("#checkUpdate").textContent = u.available ? "Оновити до " + u.latest : "Перевірити оновлення";
   $("#checkUpdate").disabled = busy || u.status === "checking";
   $("#aboutNotes").hidden = !(u.available && u.notes);
   $("#aboutNotes").textContent = u.notes;
 
-  const banner = $("#updateBanner");
-  const dismissed = sessionStorageGet("dismissed") === u.latest;
-  banner.hidden = !(busy || (u.available && !dismissed) || (u.error && u.status === "idle" && renderUpdate.tried));
-  banner.classList.toggle("err", !!u.error && !busy);
-  $("#updateText").textContent = busy ? `Оновлення до ${u.latest}: ${u.progress}`
-    : u.error && renderUpdate.tried ? u.error
-    : u.blocked ? `Доступна версія ${u.latest} (у вас ${u.current}). Автооновлення недоступне: ${u.blocked}`
-    : `Доступна нова версія SC DMX ${u.latest} (у вас ${u.current}).`;
-  $("#updateNow").hidden = busy || !u.available || !!u.blocked;
-  $("#updateNotesBtn").hidden = busy || !u.notes;
-  $("#updateLater").hidden = busy;
+  // кнопка у шапці: з'являється сама, щойно знайдено нову версію
+  const btn = $("#updateBtn");
+  const failed = !!u.error && renderUpdate.tried && !busy;
+  btn.hidden = !(u.available || busy || failed);
+  btn.classList.toggle("busy", busy);
+  btn.classList.toggle("err", failed);
+  btn.disabled = busy;
+  btn.textContent = busy ? `⟳ ${u.progress || "оновлення…"}`
+    : failed ? "⚠ Оновлення не вдалося"
+    : `⬆ Оновити до ${u.latest}`;
+  btn.title = failed ? u.error : `Встановлена версія ${u.current}, доступна ${u.latest}`;
+
+  $("#updTitle").textContent = `SC DMX ${u.latest}`;
+  $("#updSubtitle").textContent = `Встановлено: ${u.current}  →  нова версія: ${u.latest}`;
+  $("#updNotes").textContent = u.notes || "Опис змін відсутній.";
+  $("#updBlocked").hidden = !u.blocked;
+  $("#updBlocked").textContent = u.blocked ? "Автооновлення недоступне: " + u.blocked : "";
+  $("#updInstall").disabled = !!u.blocked || busy || !u.available;
+  if (busy && $("#updDlg").open) $("#updDlg").close();
 }
 
-function sessionStorageGet(k) { try { return sessionStorage.getItem(k); } catch { return null; } }
-function sessionStorageSet(k, v) { try { sessionStorage.setItem(k, v); } catch { /* ignore */ } }
+function openUpdateDialog() {
+  if (!updateInfo) return;
+  if (updateInfo.error && renderUpdate.tried && !updateInfo.available) return toast(updateInfo.error);
+  $("#updDlg").showModal();
+}
 
 function startUpdate() {
-  if (!confirm(`Оновити SC DMX до версії ${updateInfo.latest}?\nПрограма перезапуститься (~10 с), світло залишиться увімкненим.`)) return;
   renderUpdate.tried = true;
   send({ cmd: "apply_update" });
+  $("#updDlg").close();
 }
 
 function bindUpdate() {
-  $("#updateNow").onclick = startUpdate;
-  $("#updateLater").onclick = () => { sessionStorageSet("dismissed", updateInfo.latest); renderUpdate.tried = false; renderUpdate(); };
-  $("#updateNotesBtn").onclick = () => {
-    $("#openSettings").click();
-    document.querySelector(".tabs button[data-tab=tabAbout]").click();
-  };
-  $("#checkUpdate").onclick = () => (updateInfo && updateInfo.available && !updateInfo.blocked ? startUpdate() : send({ cmd: "check_update" }));
+  $("#updateBtn").onclick = openUpdateDialog;
+  $("#updInstall").onclick = startUpdate;
+  $("#checkUpdate").onclick = () => (updateInfo && updateInfo.available && !updateInfo.blocked
+    ? ($("#settings").close(), openUpdateDialog()) : send({ cmd: "check_update" }));
   $("#quitApp").onclick = () => {
     if (confirm("Вимкнути SC DMX? Прожектори згаснуть.")) { quitting = true; send({ cmd: "quit" }); }
   };
@@ -592,6 +617,197 @@ function renderSettings() {
     el("button", { className: "btn small", textContent: "✕", onclick: () => send({ cmd: "delete_profile", name: p }) }))));
 }
 
+// --------------------------------------------------- властивості приладу ---
+let propId = null;
+
+function openProps(id) {
+  const f = S.fixtures.find((x) => x.id === id);
+  if (!f) return;
+  propId = id;
+  renderSettings();
+  const sel = $("#propProfile");
+  sel.replaceChildren(...Object.keys(S.profiles).map((p) => el("option", { value: p, textContent: p })));
+  sel.value = f.profile;
+  $("#propName").value = f.name;
+  $("#propAddress").value = f.address;
+  $("#propDimmer").value = f.dimmer;
+  updatePropInfo();
+  $("#propDlg").showModal();
+}
+
+function updatePropInfo() {
+  const f = S.fixtures.find((x) => x.id === propId);
+  if (!f) return;
+  const ch = S.profiles[$("#propProfile").value] || [];
+  const start = +$("#propAddress").value || 1;
+  const end = start + ch.length - 1;
+  const n = Math.max(1, ...["r", "g", "b"].map((c) => ch.filter((x) => x === c).length));
+  $("#propDimmerVal").textContent = Math.round((+$("#propDimmer").value / 255) * 100) + "%";
+  $("#propInfo").textContent = `Адреси ${start}–${end} · ${ch.length} кан.${n > 1 ? ` · ${n} сегм.` : ""} · ${ch.join(" ")}`;
+  const clash = S.fixtures.filter((o) => o.id !== f.id).filter((o) => {
+    const oe = o.address + S.profiles[o.profile].length - 1;
+    return start <= oe && o.address <= end;
+  });
+  const warn = end > 512 ? "Прилад виходить за межі 512 каналів."
+    : clash.length ? "Адреси перетинаються з: " + clash.map((o) => o.name).join(", ") : "";
+  $("#propWarn").hidden = !warn;
+  $("#propWarn").textContent = warn ? "⚠ " + warn : "";
+}
+
+function duplicateFixture(id) {
+  const f = S.fixtures.find((x) => x.id === id);
+  if (!f) return;
+  addPending = S.fixtures.length;
+  send({ cmd: "add_fixture", name: f.name + " (копія)", profile: f.profile, address: nextFreeAddress(), count: 1 });
+}
+
+function deleteFixtures(ids) {
+  const names = S.fixtures.filter((f) => ids.includes(f.id)).map((f) => f.name);
+  if (!names.length || !confirm(`Видалити ${names.length > 1 ? "прилади" : "прилад"}: ${names.join(", ")}?`)) return false;
+  for (const id of ids) send({ cmd: "delete_fixture", id });
+  ids.forEach((id) => selected.delete(id));
+  return true;
+}
+
+function bindProps() {
+  for (const id of ["#propProfile", "#propAddress", "#propDimmer"]) $(id).addEventListener("input", updatePropInfo);
+  $("#propDimmer").addEventListener("input", () =>
+    sendThrottled("color", { cmd: "set_color", ids: [propId], dimmer: +$("#propDimmer").value }));
+  $("#propSave").onclick = () => {
+    send({ cmd: "update_fixture", id: propId, name: $("#propName").value.trim() || "Прилад",
+           address: +$("#propAddress").value, profile: $("#propProfile").value });
+    $("#propDlg").close();
+  };
+  $("#propDup").onclick = () => { $("#propDlg").close(); duplicateFixture(propId); };
+  $("#propDelete").onclick = () => { if (deleteFixtures([propId])) $("#propDlg").close(); };
+}
+
+// ---------------------------------------------------- контекстне меню -----
+function showMenu(x, y, items) {
+  const menu = $("#ctxMenu");
+  menu.replaceChildren();
+  for (const it of items) {
+    if (!it) continue;
+    if (it.sep) { menu.append(el("div", { className: "sep" })); continue; }
+    if (it.title) { menu.append(el("div", { className: "title", textContent: it.title })); continue; }
+    if (it.colors) {
+      const box = el("div", { className: "chips" });
+      for (const [i, c] of S.static_colors.entries()) {
+        const b = el("button", { title: c.name });
+        b.style.background = c.w ? `linear-gradient(135deg, ${c.hex} 55%, #fff)` : c.hex;
+        b.onclick = () => { hideMenu(); it.colors(i); };
+        box.append(b);
+      }
+      menu.append(box);
+      continue;
+    }
+    const btn = el("button", { className: "item" + (it.danger ? " danger" : ""), disabled: !!it.disabled },
+      el("span", { className: "ico", textContent: it.icon || "" }),
+      el("span", { textContent: it.label }),
+      el("span", { className: "key", textContent: it.key || "" }));
+    btn.setAttribute("role", "menuitem");
+    btn.onclick = () => { hideMenu(); it.action(); };
+    menu.append(btn);
+  }
+  menu.hidden = false;
+  // не виходити за межі вікна
+  const r = menu.getBoundingClientRect();
+  menu.style.left = Math.max(4, Math.min(x, innerWidth - r.width - 4)) + "px";
+  menu.style.top = Math.max(4, Math.min(y, innerHeight - r.height - 4)) + "px";
+  menu.querySelector(".item:not(:disabled)")?.focus({ preventScroll: true });
+}
+
+function hideMenu() { $("#ctxMenu").hidden = true; }
+
+function fixtureMenu(id) {
+  const [fid, seg] = id.split("#");
+  const f = S.fixtures.find((x) => x.id === fid);
+  if (!f) return [];
+  // правий клік по невибраному елементу вибирає лише його (як у провіднику)
+  if (!selected.has(id)) { selected.clear(); selected.add(id); refreshSelection(); syncSliders(); }
+  const ids = [...selected];
+  const items = selItems();
+  const whole = [...new Set(items.filter((i) => i.seg === null).map((i) => i.f.id))];
+  const fixturesInSel = [...new Set(items.map((i) => i.f.id))];
+  const inEffect = fixturesInSel.some((x) => S.effect.type !== "none" && S.effect.ids.includes(x));
+  const effName = S.effects[$("#effType").value];
+  const head = items.length > 1 ? `Вибрано: ${selDescription(items)}`
+    : seg !== undefined ? `${f.name} · сегмент ${+seg + 1}` : f.name;
+  return [
+    { title: head },
+    { colors: (index) => send({ cmd: "static_color", index, ids }) },
+    { icon: "⌫", label: "Очистити колір", key: "Del", action: () => send({ cmd: "clear", ids }) },
+    { sep: true },
+    { icon: "▶", label: `Запустити ефект «${effName}»`, action: () =>
+        send({ cmd: "set_effect", type: $("#effType").value, ids: fixturesInSel, ...effectParams() }) },
+    inEffect && { icon: "■", label: "Зупинити ефект", action: () => {
+        const rest = S.effect.ids.filter((x) => !fixturesInSel.includes(x));
+        send(rest.length ? { cmd: "set_effect", ids: rest } : { cmd: "set_effect", type: "none" });
+      } },
+    { sep: true },
+    seg !== undefined && items.length === 1 && { icon: "▭", label: "Вибрати весь прилад", action: () => pick(fid, false) },
+    { icon: "≡", label: "Вибрати всі такі самі прилади", action: () => {
+        selected.clear();
+        S.fixtures.filter((x) => x.profile === f.profile).forEach((x) => selected.add(x.id));
+        refreshSelection(); syncSliders();
+      } },
+    fixturesInSel.length === 1 && { icon: "⚙", label: "Властивості…", key: "2×клік", action: () => openProps(fid) },
+    fixturesInSel.length === 1 && { icon: "⧉", label: "Дублювати", action: () => duplicateFixture(fid) },
+    whole.length > 0 && { sep: true },
+    whole.length > 0 && { icon: "✕", label: whole.length > 1 ? `Видалити прилади (${whole.length})` : "Видалити прилад",
+      danger: true, action: () => deleteFixtures(whole) },
+  ];
+}
+
+function generalMenu() {
+  const u = updateInfo || {};
+  return [
+    { icon: "＋", label: "Додати прилад…", action: openAdd },
+    S.fixtures.length > 0 && { icon: "☰", label: "Вибрати всі прилади", key: "Ctrl+A", action: () => $("#selAll").click() },
+    selected.size > 0 && { icon: "○", label: "Зняти вибір", key: "Esc", action: () => $("#selNone").click() },
+    { sep: true },
+    { icon: "⌫", label: "Очистити всі кольори", action: () => send({ cmd: "clear", ids: [] }) },
+    S.effect.type !== "none" && { icon: "■", label: "Зупинити всі ефекти", action: () => send({ cmd: "set_effect", type: "none" }) },
+    { icon: "◐", label: S.blackout ? "Вимкнути Blackout" : "Blackout", key: "B", action: () => send({ cmd: "blackout" }) },
+    { sep: true },
+    u.available && !u.blocked && { icon: "⬆", label: `Оновити до ${u.latest}…`, action: openUpdateDialog },
+    !(u.available && !u.blocked) && { icon: "⟳", label: "Перевірити оновлення", action: () => send({ cmd: "check_update" }) },
+    { icon: "⚙", label: "Налаштування", action: () => $("#openSettings").click() },
+  ];
+}
+
+function bindContextMenu() {
+  document.addEventListener("contextmenu", (e) => {
+    // у полях введення лишаємо стандартне меню (копіювати/вставити)
+    if (e.target.matches("input[type=text], input:not([type]), input[type=number], textarea")) return;
+    e.preventDefault();
+    if (!S || document.querySelector("dialog[open]")) return hideMenu();
+    const cell = e.target.closest(".lamp.bar span");
+    const tile = e.target.closest(".fx");
+    let items;
+    if (cell && tile) {
+      const k = [...cell.parentNode.children].indexOf(cell);
+      items = fixtureMenu(`${tile.dataset.id}#${k}`);
+    } else if (tile) {
+      items = fixtureMenu(tile.dataset.id);
+    } else {
+      items = generalMenu();
+    }
+    showMenu(e.clientX, e.clientY, items);
+  });
+  document.addEventListener("pointerdown", (e) => { if (!e.target.closest("#ctxMenu")) hideMenu(); }, true);
+  addEventListener("blur", hideMenu);
+  addEventListener("resize", hideMenu);
+  document.addEventListener("scroll", hideMenu, true);
+  $("#ctxMenu").addEventListener("keydown", (e) => {
+    const items = [...$("#ctxMenu").querySelectorAll(".item:not(:disabled)")];
+    const i = items.indexOf(document.activeElement);
+    if (e.key === "Escape") { hideMenu(); e.stopPropagation(); }
+    if (e.key === "ArrowDown") { e.preventDefault(); items[(i + 1) % items.length]?.focus(); }
+    if (e.key === "ArrowUp") { e.preventDefault(); items[(i - 1 + items.length) % items.length]?.focus(); }
+  });
+}
+
 let addPending = null;
 
 function nextFreeAddress() {
@@ -693,6 +909,8 @@ function init() {
   buildWheel();
   bindStatic();
   bindUpdate();
+  bindProps();
+  bindContextMenu();
   bindEffects();
   bindScenes();
   bindSettings();
@@ -716,7 +934,8 @@ function init() {
     renderFixtures(); syncSliders();
   };
   document.addEventListener("keydown", (e) => {
-    if (e.target.matches("input, select, textarea") || $("#settings").open || $("#addDlg").open) return;
+    if (e.target.matches("input, select, textarea") || document.querySelector("dialog[open]")) return;
+    if (!$("#ctxMenu").hidden) return;
     if (e.key === "b" || e.key === "B" || e.key === "и" || e.key === "И") send({ cmd: "blackout" });
     if ((e.ctrlKey || e.metaKey) && e.key === "a") { e.preventDefault(); $("#selAll").click(); }
     if (e.key === "Escape") $("#selNone").click();

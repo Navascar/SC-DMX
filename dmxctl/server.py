@@ -24,7 +24,7 @@ TASKS = web.AppKey("tasks", list)
 UPDATE = web.AppKey("update", dict)
 STOP = web.AppKey("stop", asyncio.Event)
 EXIT = web.AppKey("exit", dict)
-UPDATE_CHECK_INTERVAL = 6 * 3600
+UPDATE_CHECK_INTERVAL = 3600  # перевірка оновлень: при запуску і щогодини
 
 
 async def broadcast(app: web.Application, payload: dict) -> None:
