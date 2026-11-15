@@ -285,8 +285,8 @@ function Save-Shot($name) {
     try {
         New-Item -ItemType Directory -Force $Shots | Out-Null
         $win.UpdateLayout()
-        $w = [int]$win.ActualWidth; $h = [int]$win.ActualHeight
-        $bmp = New-Object Windows.Media.Imaging.RenderTargetBitmap($w * 2, $h * 2, 192, 192, [Windows.Media.PixelFormats]::Pbgra32)
+        $w = [int]($win.ActualWidth * 2); $h = [int]($win.ActualHeight * 2)
+        $bmp = [Windows.Media.Imaging.RenderTargetBitmap]::new($w, $h, 192, 192, [Windows.Media.PixelFormats]::Pbgra32)
         $bmp.Render($win)
         $enc = New-Object Windows.Media.Imaging.PngBitmapEncoder
         $enc.Frames.Add([Windows.Media.Imaging.BitmapFrame]::Create($bmp))

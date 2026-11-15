@@ -92,6 +92,25 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force shots | Out-Null
           Copy-Item "$env:TEMP\SC-DMX-install.log" shots\ -ErrorAction SilentlyContinue
+      - name: Знімки в журнал (base64, для перегляду без артефактів)
+        if: always()
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Drawing
+          foreach ($f in Get-ChildItem shots -Filter *.png) {
+            $img = [System.Drawing.Image]::FromFile($f.FullName)
+            $k = [Math]::Min(1.0, 1400 / $img.Width)
+            $bmp = New-Object System.Drawing.Bitmap ([int]($img.Width * $k)), ([int]($img.Height * $k))
+            $g = [System.Drawing.Graphics]::FromImage($bmp)
+            $g.InterpolationMode = 'HighQualityBicubic'
+            $g.DrawImage($img, 0, 0, $bmp.Width, $bmp.Height)
+            $ms = New-Object IO.MemoryStream
+            $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Jpeg)
+            $b64 = [Convert]::ToBase64String($ms.ToArray())
+            for ($i = 0; $i -lt $b64.Length; $i += 3000) {
+              "SHOT|$($f.BaseName)|" + $b64.Substring($i, [Math]::Min(3000, $b64.Length - $i))
+            }
+          }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
