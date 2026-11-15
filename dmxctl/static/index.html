@@ -43,13 +43,14 @@
       </div>
     </div>
     <div id="fixtureGrid" class="fixture-grid"></div>
-    <p class="hint">Клік — вибір приладу. Можна вибрати кілька.</p>
+    <p class="hint">Клік — вибір приладу, можна кілька. У LED-барів (WASH 243 у режимах 6/12/24 кан.) клік по сегменту вибирає окремий сегмент. Delete / 0 — очистити кольори.</p>
   </section>
 
   <section class="panel color-panel">
     <div class="panel-head">
       <h2>Колір</h2>
-      <span id="selInfo" class="muted">нічого не вибрано</span>
+      <span id="selInfo" class="muted grow-text">нічого не вибрано</span>
+      <button class="btn small" id="clearColors" title="Очистити кольори (Delete або 0)">⌫ Очистити все</button>
     </div>
     <div class="picker-row">
       <canvas id="wheel" width="220" height="220" aria-label="Колірне коло"></canvas>
@@ -65,6 +66,7 @@
     </div>
     <div id="staticGrid" class="static-grid"></div>
     <div class="row static-actions">
+      <button class="btn small" id="staticClear" title="Вимкнути кольори вибраних (або всіх) приладів — Delete / 0">⌫ Очистити</button>
       <button class="btn small" id="staticAdd" title="Зберегти колір першого вибраного приладу">＋ Зберегти поточний</button>
       <button class="btn small" id="staticEdit">Редагувати</button>
       <button class="btn small" id="staticReset" hidden>Скинути до стандартних</button>
@@ -81,6 +83,7 @@
         <div id="effColors" class="eff-colors"></div>
         <button class="btn small" id="effAddColor" title="Додати поточний колір">＋</button>
       </div>
+      <label class="check"><input type="checkbox" id="effBySeg" checked> по сегментах (ефект біжить уздовж LED-барів, напр. WASH 243)</label>
       <p class="hint">Порожня палітра — ефект бере власні кольори приладів (для пульсації, стробу, біжучого вогню).</p>
       <div class="row">
         <button class="btn primary" id="effApply">Запустити на вибраних</button>

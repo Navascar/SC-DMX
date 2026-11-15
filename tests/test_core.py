@@ -154,3 +154,74 @@ def test_static_color_stops_effect_and_uses_white_channel(tmp_path):
     eng.handle({"cmd": "add_static_color", "name": "Мій", "hex": "#123456", "w": 0})
     eng.save()
     assert Engine(tmp_path / "cfg.json").static_colors[-1] == {"name": "Мій", "hex": "#123456"}
+
+
+WASH24 = "Free Color WASH 243 · 24 кан. (8 сегментів)"
+
+
+def test_wash243_profiles():
+    from dmxctl.fixtures import segment_count
+    assert segment_count(DEFAULT_PROFILES[WASH24]) == 8
+    assert len(DEFAULT_PROFILES[WASH24]) == 24
+    assert segment_count(DEFAULT_PROFILES["Free Color WASH 243 · 6 кан. E001 (2 сегменти)"]) == 2
+    assert DEFAULT_PROFILES["Free Color WASH 243 · 4 кан. d001 (Dim+RGB)"] == ["dim", "r", "g", "b"]
+
+
+def test_segment_colors_and_clear(tmp_path):
+    eng = Engine(tmp_path / "cfg.json")
+    eng.fixtures.clear()
+    eng.handle({"cmd": "add_fixture", "profile": WASH24, "address": 1, "name": "Бар"})
+    fx = eng.fixtures[0]
+    # увесь бар синім, третій сегмент червоним
+    eng.handle({"cmd": "set_color", "ids": [fx.id], "hex": "#0000ff"})
+    eng.handle({"cmd": "set_color", "ids": [f"{fx.id}#2"], "hex": "#ff0000"})
+    frame = eng.render(0)
+    assert list(frame[0:3]) == [0, 0, 255]
+    assert list(frame[6:9]) == [255, 0, 0]
+    assert list(frame[21:24]) == [0, 0, 255]
+    assert len(eng.live[fx.id]) == 8
+
+    # очищення одного сегмента
+    eng.handle({"cmd": "clear", "ids": [f"{fx.id}#0"]})
+    frame = eng.render(0)
+    assert list(frame[0:3]) == [0, 0, 0] and list(frame[3:6]) == [0, 0, 255]
+
+    # колір на весь прилад скидає сегменти
+    eng.handle({"cmd": "set_color", "ids": [fx.id], "hex": "#00ff00"})
+    assert fx.segs is None
+
+    # «Очистити все» без вибору — гасить усе і зупиняє ефект
+    eng.handle({"cmd": "set_effect", "type": "rainbow", "ids": [fx.id]})
+    eng.handle({"cmd": "clear", "ids": []})
+    assert eng.effect["type"] == "none"
+    assert not any(eng.render(0))
+
+
+def test_effect_runs_along_segments(tmp_path):
+    eng = Engine(tmp_path / "cfg.json")
+    eng.fixtures.clear()
+    eng.handle({"cmd": "add_fixture", "profile": WASH24, "address": 1})
+    fid = eng.fixtures[0].id
+    eng.handle({"cmd": "set_effect", "type": "rainbow", "ids": [fid], "spread": 1.0, "by_segment": True})
+    frame = eng.render(0)
+    segs = {bytes(frame[i:i + 3]) for i in range(0, 24, 3)}
+    assert len(segs) > 4                      # веселка розкладена по сегментах
+    eng.handle({"cmd": "set_effect", "by_segment": False})
+    frame = eng.render(0)
+    assert len({bytes(frame[i:i + 3]) for i in range(0, 24, 3)}) == 1  # увесь бар одним кольором
+
+
+def test_scene_restores_segments(tmp_path):
+    eng = Engine(tmp_path / "cfg.json")
+    eng.fixtures.clear()
+    eng.handle({"cmd": "add_fixture", "profile": WASH24, "address": 1})
+    fx = eng.fixtures[0]
+    eng.handle({"cmd": "set_color", "ids": [f"{fx.id}#7"], "hex": "#ffffff"})
+    eng.handle({"cmd": "save_scene", "name": "s"})
+    eng.handle({"cmd": "clear", "ids": []})
+    eng.handle({"cmd": "recall_scene", "name": "s", "fade": 1})
+    start = eng._fade["start"]
+    eng.render(start + 0.5)
+    assert 120 <= fx.segs[7][0] <= 135
+    eng.render(start + 2)
+    assert fx.segs[7] == [255, 255, 255]

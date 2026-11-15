@@ -136,15 +136,37 @@ function renderFixtures() {
   }
   const effIds = new Set(S.effect.type !== "none" ? S.effect.ids : []);
   for (const f of S.fixtures) {
-    const tile = el("div", { className: "fx" + (selected.has(f.id) ? " sel" : ""), title: f.profile },
-      el("div", { className: "lamp" }),
+    const n = segCount(f);
+    let lamp;
+    if (n > 1) {
+      lamp = el("div", { className: "lamp bar" });
+      for (let k = 0; k < n; k++) {
+        const cell = el("span", { title: `Сегмент ${k + 1}` });
+        cell.className = selected.has(`${f.id}#${k}`) ? "sel" : "";
+        cell.onclick = (e) => {
+          e.stopPropagation();
+          const id = `${f.id}#${k}`;
+          selected.delete(f.id);
+          selected.has(id) ? selected.delete(id) : selected.add(id);
+          renderFixtures();
+          syncSliders();
+        };
+        lamp.append(cell);
+      }
+    } else {
+      lamp = el("div", { className: "lamp" });
+    }
+    const tile = el("div", { className: "fx" + (selected.has(f.id) ? " sel" : "") + (n > 1 ? " wide" : ""),
+                             title: f.profile + (n > 1 ? "\nКлік по сегменту — вибрати окремий сегмент" : "") },
+      lamp,
       el("div", { className: "name", textContent: f.name }),
       el("div", { className: "addr", textContent: `DMX ${f.address}–${f.address + S.profiles[f.profile].length - 1}` }),
       el("div", { className: "fx-badge", textContent: effIds.has(f.id) ? "● " + S.effects[S.effect.type] : "" }));
     tile.dataset.id = f.id;
     tile.onclick = () => {
+      for (let k = 0; k < n; k++) selected.delete(`${f.id}#${k}`);
       selected.has(f.id) ? selected.delete(f.id) : selected.add(f.id);
-      tile.classList.toggle("sel");
+      renderFixtures();
       syncSliders();
     };
     grid.append(tile);
@@ -152,14 +174,20 @@ function renderFixtures() {
 }
 
 function updateLive(m) {
-  for (const tile of document.querySelectorAll(".fx")) {
-    const c = m.live[tile.dataset.id];
-    if (!c) continue;
-    const [r, g, b, w] = c;
-    const lamp = tile.firstChild;
+  const paint = (node, [r, g, b, w], glow) => {
     const rr = Math.min(255, r + w), gg = Math.min(255, g + w), bb = Math.min(255, b + w);
-    lamp.style.background = `rgb(${rr},${gg},${bb})`;
-    lamp.style.boxShadow = `0 0 ${6 + (rr + gg + bb) / 30}px rgba(${rr},${gg},${bb},.7)`;
+    node.style.background = `rgb(${rr},${gg},${bb})`;
+    node.style.boxShadow = `0 0 ${glow + (rr + gg + bb) / 30}px rgba(${rr},${gg},${bb},.7)`;
+  };
+  for (const tile of document.querySelectorAll(".fx")) {
+    const segs = m.live[tile.dataset.id];
+    if (!segs) continue;
+    const lamp = tile.firstChild;
+    if (lamp.classList.contains("bar")) {
+      [...lamp.children].forEach((cell, k) => segs[k] && paint(cell, segs[k], 2));
+    } else {
+      paint(lamp, segs[0], 6);
+    }
   }
   if (m.output) setOutput(m.output);
   const det = $(".monitor-panel details");
@@ -203,14 +231,45 @@ function buildSliders() {
   }
 }
 
+function segCount(f) {
+  const ch = S.profiles[f.profile] || [];
+  return Math.max(1, ...["r", "g", "b", "w", "a", "uv"].map((c) => ch.filter((x) => x === c).length));
+}
+
+// вибрані елементи: [{f, seg}] — seg = null для приладу цілком
+function selItems() {
+  const out = [];
+  for (const id of selected) {
+    const [fid, k] = id.split("#");
+    const f = S.fixtures.find((x) => x.id === fid);
+    if (f) out.push({ f, seg: k === undefined ? null : +k });
+  }
+  return out;
+}
+
+function itemColor({ f, seg }) {
+  const c = { ...f };
+  if (seg !== null && f.segs && f.segs[seg]) [c.r, c.g, c.b] = f.segs[seg];
+  return c;
+}
+
+function selDescription(items) {
+  const whole = items.filter((i) => i.seg === null).length;
+  const segs = items.length - whole;
+  return [whole && `приладів: ${whole}`, segs && `сегментів: ${segs}`].filter(Boolean).join(", ");
+}
+
 function syncSliders() {
-  const sel = S.fixtures.filter((f) => selected.has(f.id));
-  $("#selInfo").textContent = sel.length ? `вибрано: ${sel.length}` : "нічого не вибрано";
-  $("#staticTarget").textContent = sel.length ? `для вибраних: ${sel.length}` : "для всіх приладів";
+  const items = selItems();
+  const sel = [...new Set(items.map((i) => i.f))];
+  const desc = selDescription(items);
+  $("#selInfo").textContent = desc ? `вибрано ${desc}` : "нічого не вибрано";
+  $("#staticTarget").textContent = desc ? `для вибраних (${desc})` : "для всіх приладів";
+  $("#clearColors").textContent = desc ? "⌫ Очистити вибрані" : "⌫ Очистити все";
   // показувати лише ті канали, що є у вибраних приладів (або всі, якщо не вибрано)
   const roles = new Set();
   for (const f of sel.length ? sel : S.fixtures) for (const r of S.profiles[f.profile] || []) roles.add(r);
-  const first = sel[0];
+  const first = items[0] && itemColor(items[0]);
   for (const row of $("#sliders").children) {
     const key = row.dataset.key;
     const always = ["r", "g", "b", "dimmer"].includes(key);
@@ -357,11 +416,17 @@ function renderStatic() {
   }));
 }
 
+function clearColors() {
+  send({ cmd: "clear", ids: [...selected] });
+}
+
 function bindStatic() {
+  $("#clearColors").onclick = clearColors;
+  $("#staticClear").onclick = clearColors;
   $("#staticEdit").onclick = () => { staticEditing = !staticEditing; renderStatic(); };
   $("#staticReset").onclick = () => confirm("Повернути стандартний набір кольорів?") && send({ cmd: "reset_static_colors" });
   $("#staticAdd").onclick = () => {
-    const f = S.fixtures.find((x) => selected.has(x.id));
+    const f = selItems()[0] && itemColor(selItems()[0]);
     if (!f) return toast("Виберіть прилад і налаштуйте колір, який хочете зберегти");
     const name = prompt("Назва кольору:", "Мій колір");
     if (name === null) return;
@@ -382,6 +447,7 @@ function renderEffects() {
   if (e.type !== "none") sel.value = e.type;
   $("#effSpeed").value = sliderFromSpeed(e.speed);
   $("#effSpread").value = Math.round(e.spread * 100);
+  $("#effBySeg").checked = e.by_segment !== false;
   updateEffLabels();
   $("#effectState").textContent = e.type !== "none" ? `▶ ${S.effects[e.type]} · ${e.ids.length} прил.` : "";
   renderEffColors();
@@ -406,6 +472,7 @@ function effectParams() {
     speed: +speedFromSlider(+$("#effSpeed").value).toFixed(3),
     spread: +$("#effSpread").value / 100,
     colors: effColors,
+    by_segment: $("#effBySeg").checked,
   };
 }
 
@@ -414,17 +481,19 @@ function liveEffectUpdate() {
 }
 
 function bindEffects() {
+  $("#effBySeg").addEventListener("change", liveEffectUpdate);
   for (const id of ["#effSpeed", "#effSpread"]) {
     $(id).addEventListener("input", () => { updateEffLabels(); liveEffectUpdate(); });
   }
   $("#effAddColor").onclick = () => {
-    const f = S.fixtures.find((x) => selected.has(x.id));
+    const f = selItems()[0] && itemColor(selItems()[0]);
     effColors.push(f && (f.r || f.g || f.b) ? toHex(f.r, f.g, f.b) : lastColor);
     renderEffColors();
     liveEffectUpdate();
   };
   $("#effApply").onclick = () => {
-    const ids = selected.size ? [...selected] : S.fixtures.map((f) => f.id);
+    const picked = [...new Set(selItems().map((i) => i.f.id))];
+    const ids = picked.length ? picked : S.fixtures.map((f) => f.id);
     send({ cmd: "set_effect", type: $("#effType").value, ids, ...effectParams() });
   };
   $("#effStop").onclick = () => send({ cmd: "set_effect", type: "none" });
@@ -576,10 +645,12 @@ function init() {
     sendThrottled("master", { cmd: "set_master", value: +master.value });
   });
   $("#blackout").onclick = () => send({ cmd: "blackout" });
-  $("#selAll").onclick = () => { S.fixtures.forEach((f) => selected.add(f.id)); renderFixtures(); syncSliders(); };
+  $("#selAll").onclick = () => { selected.clear(); S.fixtures.forEach((f) => selected.add(f.id)); renderFixtures(); syncSliders(); };
   $("#selNone").onclick = () => { selected.clear(); renderFixtures(); syncSliders(); };
   $("#selInvert").onclick = () => {
-    S.fixtures.forEach((f) => (selected.has(f.id) ? selected.delete(f.id) : selected.add(f.id)));
+    const had = new Set(selItems().filter((i) => i.seg === null).map((i) => i.f.id));
+    selected.clear();
+    S.fixtures.forEach((f) => had.has(f.id) || selected.add(f.id));
     renderFixtures(); syncSliders();
   };
   document.addEventListener("keydown", (e) => {
@@ -587,6 +658,7 @@ function init() {
     if (e.key === "b" || e.key === "B" || e.key === "и" || e.key === "И") send({ cmd: "blackout" });
     if ((e.ctrlKey || e.metaKey) && e.key === "a") { e.preventDefault(); $("#selAll").click(); }
     if (e.key === "Escape") $("#selNone").click();
+    if (e.key === "Delete" || e.key === "Backspace" || e.key === "0") { e.preventDefault(); clearColors(); }
     // 1..9 — швидкий вибір статичного кольору
     if (/^[1-9]$/.test(e.key) && S.static_colors[+e.key - 1]) {
       send({ cmd: "static_color", index: +e.key - 1, ids: [...selected] });

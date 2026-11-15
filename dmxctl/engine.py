@@ -11,7 +11,7 @@ from pathlib import Path
 
 from .effects import EFFECTS, effect_color, hex_to_rgb
 from .fixtures import (COLOR_KEYS, DEFAULT_PROFILES, Fixture, find_overlaps,
-                       render_fixture, validate_fixture, validate_profile)
+                       render_fixture, segment_count, validate_fixture, validate_profile)
 from .outputs import DMX_CHANNELS, OUTPUT_TYPES, create_output
 
 log = logging.getLogger(__name__)
@@ -38,6 +38,13 @@ DEFAULT_STATIC_COLORS = [
 STATE_KEYS = COLOR_KEYS + ("dimmer",)
 
 
+def _seg_rgbs(vals: dict, n: int) -> list[list[int]]:
+    """Кольори n сегментів зі збереженого стану приладу (для кросфейду)."""
+    base = [vals.get("r", 0), vals.get("g", 0), vals.get("b", 0)]
+    segs = list(vals.get("segs") or [])
+    return [list(segs[k]) if k < len(segs) and segs[k] else base for k in range(n)]
+
+
 def _byte(v) -> int:
     v = int(v)
     if not 0 <= v <= 255:
@@ -55,7 +62,8 @@ class Engine:
         self.output_cfg: dict = {"type": "udmx"}
         self.master = 255
         self.blackout = False
-        self.effect: dict = {"type": "none", "ids": [], "speed": 0.5, "spread": 1.0, "colors": []}
+        self.effect: dict = {"type": "none", "ids": [], "speed": 0.5, "spread": 1.0, "colors": [],
+                             "by_segment": True}
         self.universe = bytearray(DMX_CHANNELS)
         self.live: dict[str, list[int]] = {}   # реальні кольори приладів для превʼю
         self._fade: dict | None = None
@@ -114,6 +122,34 @@ class Engine:
         wanted = set(ids)
         return [f for f in self.fixtures if f.id in wanted]
 
+    def _segments(self, fx: Fixture) -> int:
+        return segment_count(self.profiles.get(fx.profile, []))
+
+    def _resolve(self, ids) -> tuple[list[Fixture], list[tuple[Fixture, int]]]:
+        """Розбирає вибір: "id" — увесь прилад, "id#k" — сегмент k приладу."""
+        whole_ids, segs = set(), []
+        by_id = {f.id: f for f in self.fixtures}
+        for item in ids or []:
+            fid, _, k = str(item).partition("#")
+            if fid not in by_id:
+                continue
+            if k == "":
+                whole_ids.add(fid)
+            else:
+                fx = by_id[fid]
+                k = int(k)
+                if 0 <= k < self._segments(fx):
+                    segs.append((fx, k))
+        whole = [f for f in self.fixtures if f.id in whole_ids]
+        segs = [(f, k) for f, k in segs if f.id not in whole_ids]
+        return whole, segs
+
+    def _drop_from_effect(self, fids) -> None:
+        fids = set(fids)
+        self.effect["ids"] = [i for i in self.effect["ids"] if i not in fids]
+        if not self.effect["ids"]:
+            self.effect["type"] = "none"
+
     def state(self) -> dict:
         from . import __version__
         return {
@@ -147,9 +183,33 @@ class Engine:
         values = {k: _byte(m[k]) for k in STATE_KEYS + ("strobe",) if k in m}
         if "hex" in m:
             values["r"], values["g"], values["b"] = hex_to_rgb(m["hex"])
-        for f in self._targets(m.get("ids")):
+        rgb_keys = [k for k in ("r", "g", "b") if k in values]
+        whole, segs = self._resolve(m.get("ids"))
+        for f in whole:
             for k, v in values.items():
                 setattr(f, k, v)
+            if rgb_keys:  # колір на весь прилад скидає кольори сегментів
+                f.segs = None
+        for f, k in segs:
+            if rgb_keys:
+                cur = f.seg_color(k)
+                f.set_seg(k, [values.get(c, cur[c]) for c in ("r", "g", "b")], self._segments(f))
+            for key, v in values.items():  # диммер, білий тощо — спільні для приладу
+                if key not in ("r", "g", "b"):
+                    setattr(f, key, v)
+
+    def cmd_clear(self, m):
+        """Очищає кольори: вибрані прилади/сегменти, або всі, якщо нічого не вибрано."""
+        self._fade = None
+        whole, segs = self._resolve(m.get("ids"))
+        if not whole and not segs:
+            whole = list(self.fixtures)
+        for f in whole:
+            f.r = f.g = f.b = f.w = f.a = f.uv = f.strobe = 0
+            f.segs = None
+        for f, k in segs:
+            f.set_seg(k, (0, 0, 0), self._segments(f))
+        self._drop_from_effect([f.id for f in whole] + [f.id for f, _ in segs])
 
     def cmd_static_color(self, m):
         """Заливає прилади статичним кольором і знімає з них ефект.
@@ -164,17 +224,19 @@ class Engine:
         rgb = hex_to_rgb(preset["hex"])
         w = _byte(preset.get("w", 0))
         rgb_w = hex_to_rgb(preset.get("hex_w") or preset["hex"])
-        targets = self._targets(m.get("ids")) or list(self.fixtures)
+        targets, segs = self._resolve(m.get("ids"))
+        if not targets and not segs:
+            targets = list(self.fixtures)
         self._fade = None
         for f in targets:
             has_w = "w" in self.profiles.get(f.profile, [])
             f.r, f.g, f.b = rgb_w if has_w and w else rgb
             f.w = w if has_w else 0
             f.a = f.uv = 0
-        ids = {f.id for f in targets}
-        self.effect["ids"] = [i for i in self.effect["ids"] if i not in ids]
-        if not self.effect["ids"]:
-            self.effect["type"] = "none"
+            f.segs = None
+        for f, k in segs:
+            f.set_seg(k, rgb, self._segments(f))
+        self._drop_from_effect([f.id for f in targets] + [f.id for f, _ in segs])
 
     def cmd_add_static_color(self, m):
         name = str(m.get("name") or "").strip() or m["hex"]
@@ -263,6 +325,7 @@ class Engine:
             "speed": max(0.01, min(20.0, float(m.get("speed", self.effect["speed"])))),
             "spread": max(0.0, min(1.0, float(m.get("spread", self.effect["spread"])))),
             "colors": colors[:16],
+            "by_segment": bool(m.get("by_segment", self.effect.get("by_segment", True))),
         }
 
     def cmd_save_scene(self, m):
@@ -270,7 +333,8 @@ class Engine:
         if not name:
             raise ValueError("вкажіть назву сцени")
         self.scenes[name] = {
-            "fixtures": {f.id: {k: getattr(f, k) for k in STATE_KEYS} for f in self.fixtures},
+            "fixtures": {f.id: {**{k: getattr(f, k) for k in STATE_KEYS}, "segs": f.segs}
+                         for f in self.fixtures},
             "effect": dict(self.effect) if m.get("with_effect") else None,
         }
 
@@ -283,7 +347,7 @@ class Engine:
                 fx = self._fx(fid)
             except KeyError:
                 continue
-            targets[fid] = ({k: getattr(fx, k) for k in STATE_KEYS}, vals)
+            targets[fid] = ({**{k: getattr(fx, k) for k in STATE_KEYS}, "segs": fx.segs}, vals)
         if scene.get("effect"):
             self.effect = dict(scene["effect"])
         if fade > 0:
@@ -313,6 +377,12 @@ class Engine:
             for key in STATE_KEYS:
                 a, b = start.get(key, 0), end.get(key, 0)
                 setattr(fx, key, int(round(a + (b - a) * k)))
+            if k >= 1.0:
+                fx.segs = [list(s) if s else None for s in end["segs"]] if end.get("segs") else None
+            elif start.get("segs") or end.get("segs"):
+                n = self._segments(fx)
+                s0, s1 = _seg_rgbs(start, n), _seg_rgbs(end, n)
+                fx.segs = [[int(round(a + (b - a) * k)) for a, b in zip(p, q)] for p, q in zip(s0, s1)]
 
     def render(self, now: float | None = None) -> bytes:
         now = time.monotonic() if now is None else now
@@ -326,19 +396,36 @@ class Engine:
         live = {}
         t = now - self._t0
         eff = self.effect
-        eff_ids = [i for i in eff["ids"] if any(f.id == i for f in self.fixtures)] if eff["type"] != "none" else []
-        eff_index = {fid: n for n, fid in enumerate(eff_ids)}
+        by_id = {f.id: f for f in self.fixtures}
+        # «пікселі» ефекту: кожен сегмент кожного приладу (або прилад цілком)
+        pixel = {}
+        if eff["type"] != "none":
+            for fid in eff["ids"]:
+                fx = by_id.get(fid)
+                if fx is None:
+                    continue
+                if eff.get("by_segment", True):
+                    for k in range(self._segments(fx)):
+                        pixel[(fid, k)] = len(pixel)
+                else:
+                    idx = len({p for (f, _), p in pixel.items()})
+                    for k in range(self._segments(fx)):
+                        pixel[(fid, k)] = idx
+        count = len(set(pixel.values()))
         master = 0.0 if self.blackout else self.master / 255.0
         for fx in self.fixtures:
             channels = self.profiles.get(fx.profile)
             if not channels:
                 continue
-            color = fx.color()
-            if fx.id in eff_index:
-                color = effect_color(eff, eff_index[fx.id], len(eff_ids), t, color)
-            render_fixture(uni, fx, channels, color, master)
+            colors = []
+            for k in range(segment_count(channels)):
+                c = fx.seg_color(k)
+                if (fx.id, k) in pixel:
+                    c = effect_color(eff, pixel[(fx.id, k)], count, t, c)
+                colors.append(c)
+            render_fixture(uni, fx, channels, colors, master)
             lvl = fx.dimmer / 255.0 * master
-            live[fx.id] = [round(min(255.0, color[c] * lvl)) for c in ("r", "g", "b", "w")]
+            live[fx.id] = [[round(min(255.0, c[ch] * lvl)) for ch in ("r", "g", "b", "w")] for c in colors]
         self.universe = uni
         self.live = live
         return bytes(uni)

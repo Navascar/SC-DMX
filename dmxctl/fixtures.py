@@ -10,7 +10,17 @@ COLOR_KEYS = ("r", "g", "b", "w", "a", "uv")
 #   strobe — апаратний строб;  zero — завжди 0;  full — завжди 255.
 ROLES = set(COLOR_KEYS) | {"dim", "strobe", "zero", "full"}
 
+# Якщо колірна роль повторюється (r g b r g b ...), прилад має кілька сегментів:
+# k-те входження ролі належить сегменту k. Так описуються LED-бари з
+# незалежними секціями, наприклад Free Color WASH 243 у режимах 6/12/24 канали.
+WASH243 = "Free Color WASH 243"
+
 DEFAULT_PROFILES: dict[str, list[str]] = {
+    f"{WASH243} · 24 кан. (8 сегментів)": ["r", "g", "b"] * 8,
+    f"{WASH243} · 12 кан. L001 (4 сегменти)": ["r", "g", "b"] * 4,
+    f"{WASH243} · 6 кан. E001 (2 сегменти)": ["r", "g", "b"] * 2,
+    f"{WASH243} · 4 кан. d001 (Dim+RGB)": ["dim", "r", "g", "b"],
+    f"{WASH243} · 3 кан. C001 (RGB)": ["r", "g", "b"],
     "RGB (3 кан.)": ["r", "g", "b"],
     "RGBW (4 кан.)": ["r", "g", "b", "w"],
     "Dim+RGB (4 кан.)": ["dim", "r", "g", "b"],
@@ -36,6 +46,9 @@ class Fixture:
     uv: int = 0
     dimmer: int = 255
     strobe: int = 0
+    # Кольори окремих сегментів: список [r, g, b] або None (= колір приладу).
+    # None для всього поля — прилад світить одним кольором.
+    segs: list | None = None
 
     @classmethod
     def from_dict(cls, d: dict) -> "Fixture":
@@ -47,6 +60,24 @@ class Fixture:
 
     def color(self) -> dict[str, float]:
         return {k: float(getattr(self, k)) for k in COLOR_KEYS}
+
+    def seg_color(self, k: int) -> dict[str, float]:
+        """Колір сегмента k: власний, якщо задано, інакше колір приладу."""
+        c = self.color()
+        if self.segs and k < len(self.segs) and self.segs[k]:
+            c["r"], c["g"], c["b"] = (float(v) for v in self.segs[k])
+        return c
+
+    def set_seg(self, k: int, rgb, count: int) -> None:
+        segs = list(self.segs or [])
+        segs += [None] * (count - len(segs))
+        segs[k] = [int(v) for v in rgb]
+        self.segs = segs[:count]
+
+
+def segment_count(channels: list[str]) -> int:
+    """Кількість сегментів = максимум повторів однієї колірної ролі."""
+    return max([channels.count(c) for c in COLOR_KEYS] + [1])
 
 
 def clamp8(v: float) -> int:
@@ -70,10 +101,11 @@ def validate_fixture(fx: Fixture, profiles: dict[str, list[str]]) -> None:
 
 
 def render_fixture(universe: bytearray, fx: Fixture, channels: list[str],
-                   color: dict[str, float], master: float) -> None:
+                   color: dict[str, float] | list[dict[str, float]], master: float) -> None:
     """Записує прилад у всесвіт.
 
-    color — значення 0..255 для r/g/b/w/a/uv (вже з урахуванням ефектів);
+    color — значення 0..255 для r/g/b/w/a/uv (вже з урахуванням ефектів),
+    або список таких словників — по одному на сегмент;
     master — 0..1. Якщо в профілі є канал dim, яскравість іде туди,
     інакше колірні канали масштабуються програмно.
     """
@@ -82,12 +114,16 @@ def render_fixture(universe: bytearray, fx: Fixture, channels: list[str],
     # при нульовому рівні гасимо і кольорові канали — на випадок, якщо прилад ігнорує диммер
     scale = 1.0 if has_dim and level > 0 else level
     base = fx.address - 1
+    colors = color if isinstance(color, list) else [color]
+    seen: dict[str, int] = {}
     for i, role in enumerate(channels):
         ch = base + i
         if ch >= len(universe):
             break
         if role in COLOR_KEYS:
-            v = color.get(role, 0.0) * scale
+            k = seen.get(role, 0)
+            seen[role] = k + 1
+            v = colors[min(k, len(colors) - 1)].get(role, 0.0) * scale
         elif role == "dim":
             v = 255.0 * level
         elif role == "strobe":

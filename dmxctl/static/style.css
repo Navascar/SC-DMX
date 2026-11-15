@@ -170,3 +170,11 @@ dialog::backdrop { background: #000a; }
 .about a { color: var(--accent); }
 .notes { white-space: pre-wrap; background: var(--panel-2); border-radius: 8px; padding: 10px; font-size: 12px;
   max-height: 220px; overflow: auto; }
+
+.fx.wide { grid-column: span 2; }
+.fx .lamp.bar { width: 100%; height: 30px; border-radius: 6px; display: flex; gap: 3px; padding: 3px;
+  background: #050608 !important; box-shadow: none !important; margin: 10px 0 14px; border-color: #2a2f3a; }
+.fx .lamp.bar span { flex: 1; border-radius: 3px; background: #000; cursor: pointer; outline-offset: 1px; }
+.fx .lamp.bar span:hover { outline: 1px solid #ffffff80; }
+.fx .lamp.bar span.sel { outline: 2px solid var(--accent); }
+.grow-text { flex: 1; text-align: right; }
