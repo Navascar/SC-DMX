@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import logging
 import os
@@ -18,6 +19,9 @@ from .outputs import DMX_CHANNELS, OUTPUT_TYPES, create_output
 log = logging.getLogger(__name__)
 
 FPS = 40
+UNDO_LIMIT = 100
+UNDO_MERGE_S = 1.0   # серія однакових команд (рух повзунка) — один крок скасування
+NO_UNDO = {"undo", "redo", "raw_set", "raw_clear", "set_output"}
 
 # Статичні кольори за замовчуванням. hex — для RGB-приладів; для приладів
 # з білим каналом використовується hex_w + w (чистіший білий від W-світлодіода).
@@ -73,6 +77,10 @@ class Engine:
         self._t0 = time.monotonic()
         self._dirty_save = False
         self._listeners: set = set()
+        self._undo: list[tuple[str, dict]] = []
+        self._redo: list[tuple[str, dict]] = []
+        self._undo_key = None
+        self._undo_t = 0.0
         self.load()
         self.output = create_output(self.output_cfg)
 
@@ -162,6 +170,8 @@ class Engine:
             "static_colors": self.static_colors,
             "effects": EFFECTS,
             "preset_count": PRESET_COUNT,
+            "undo": self._undo[-1][0] if self._undo else None,
+            "redo": self._redo[-1][0] if self._redo else None,
             "overlaps": find_overlaps(self.fixtures, self.profiles),
         }
 
@@ -172,8 +182,60 @@ class Engine:
         handler = getattr(self, f"cmd_{cmd}", None)
         if handler is None:
             raise ValueError(f"невідома команда {cmd!r}")
-        handler(msg)
+        pushed = False
+        if cmd not in NO_UNDO:
+            ids = msg.get("ids")
+            key = (cmd, tuple(sorted(map(str, ids))) if ids else None,
+                   tuple(sorted(k for k in msg if k not in ("cmd", "ids"))),
+                   msg.get("index"), msg.get("id"), msg.get("name"))
+            now = time.monotonic()
+            if key != self._undo_key or now - self._undo_t > UNDO_MERGE_S:
+                self._undo.append((cmd, self._snapshot()))
+                del self._undo[:-UNDO_LIMIT]
+                pushed = True
+            self._undo_key, self._undo_t = key, now
+        try:
+            handler(msg)
+        except Exception:
+            if pushed:  # команда не виконалась — і кроку скасування немає
+                self._undo.pop()
+                self._undo_key = None
+            raise
+        if cmd not in NO_UNDO:
+            self._redo.clear()
         self._dirty_save = True
+
+    # ------------------------------------------------------------ undo ----
+    def _snapshot(self) -> dict:
+        return copy.deepcopy({
+            "fixtures": [f.to_dict() for f in self.fixtures],
+            "master": self.master, "blackout": self.blackout, "effect": self.effect,
+            "scenes": self.scenes, "static_colors": self.static_colors, "profiles": self.profiles,
+        })
+
+    def _restore(self, snap: dict) -> None:
+        snap = copy.deepcopy(snap)
+        self.fixtures = [Fixture.from_dict(f) for f in snap["fixtures"]]
+        self.master, self.blackout, self.effect = snap["master"], snap["blackout"], snap["effect"]
+        self.scenes, self.static_colors, self.profiles = snap["scenes"], snap["static_colors"], snap["profiles"]
+        self._fade = None
+        self._undo_key = None
+
+    def cmd_undo(self, m):
+        if not self._undo:
+            raise ValueError("Немає дій для скасування")
+        cmd, snap = self._undo.pop()
+        self._redo.append((cmd, self._snapshot()))
+        self._restore(snap)
+        self.last_undo = cmd
+
+    def cmd_redo(self, m):
+        if not self._redo:
+            raise ValueError("Немає дій для повторення")
+        cmd, snap = self._redo.pop()
+        self._undo.append((cmd, self._snapshot()))
+        self._restore(snap)
+        self.last_undo = cmd
 
     def cmd_set_color(self, m):
         self._fade = None

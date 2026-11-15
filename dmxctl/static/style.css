@@ -244,3 +244,33 @@ label.inline input { width: 70px; }
 output.editable { cursor: text; border-radius: 4px; padding: 1px 3px; }
 output.editable:hover { background: var(--panel-2); outline: 1px solid var(--line); }
 input.num-edit { width: 62px; padding: 2px 4px; font-size: 12px; text-align: right; }
+
+/* сцени в панелі «Колір» */
+.color-scenes { margin-top: 18px; }
+.color-scenes > .panel-head:first-child { margin-top: 0 !important; }
+
+/* меню і сповіщення як popover — відображаються поверх модальних вікон */
+.ctx-menu[popover] { margin: 0; inset: auto; position: fixed; color: var(--text); overflow: visible; }
+.toast[popover] { margin: 0; inset: auto auto 18px 50%; transform: translateX(-50%); border: 0; color: #fff; }
+
+/* власні вікна підтвердження та введення */
+.ui-dlg { width: min(440px, 94vw); }
+.ui-dlg h2 { margin: 0 0 8px; }
+.ui-dlg p { margin: 0 0 14px; color: var(--text); white-space: pre-line; }
+.ui-dlg input { width: 100%; margin-bottom: 14px; }
+.ui-actions { justify-content: flex-end; }
+.ui-dlg.danger #uiOk { background: var(--danger); border-color: var(--danger); }
+
+/* повзунки: заливка до самого кінця при максимальному значенні */
+input[type=range] { -webkit-appearance: none; appearance: none; height: 18px; background: transparent;
+  --fill: var(--accent); --p: 0; cursor: pointer; }
+input[type=range]::-webkit-slider-runnable-track { height: 6px; border-radius: 3px;
+  background: linear-gradient(to right, var(--fill) 0, var(--fill) calc(var(--p) * (100% - 16px) + 8px),
+    #3a404d calc(var(--p) * (100% - 16px) + 8px), #3a404d 100%); }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; margin-top: -5px;
+  border-radius: 50%; background: var(--fill); border: 2px solid #fff3; box-shadow: 0 1px 3px #0008; }
+input[type=range]::-moz-range-track { height: 6px; border-radius: 3px; background: #3a404d; }
+input[type=range]::-moz-range-progress { height: 6px; border-radius: 3px; background: var(--fill); }
+input[type=range]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: var(--fill); border: 2px solid #fff3; }
+input[type=range]:focus-visible { outline: none; }
+input[type=range]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px rgba(79,140,255,.45); }

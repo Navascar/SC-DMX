@@ -303,3 +303,33 @@ def test_presets_switch_brightness_levels(tmp_path):
     assert par.preset == 3
     with pytest.raises(ValueError):
         eng.handle({"cmd": "preset", "ids": [par.id], "n": 26})
+
+
+def test_undo_redo(tmp_path, monkeypatch):
+    import dmxctl.engine as engmod
+    eng = Engine(tmp_path / "cfg.json")
+    eng.handle({"cmd": "add_fixture", "profile": "RGB (3 кан.)", "address": 1})
+    fx_id = eng.fixtures[0].id
+    eng.handle({"cmd": "static_color", "hex": "#ff0000", "ids": [fx_id]})
+    # серія рухів повзунка — один крок
+    for v in (10, 50, 120):
+        eng.handle({"cmd": "set_color", "ids": [fx_id], "g": v})
+    assert eng.fixtures[0].g == 120 and eng.state()["undo"] == "set_color"
+    eng.handle({"cmd": "undo"})
+    assert (eng.fixtures[0].r, eng.fixtures[0].g) == (255, 0)
+    eng.handle({"cmd": "undo"})
+    assert eng.fixtures[0].r == 0
+    eng.handle({"cmd": "redo"})
+    assert eng.fixtures[0].r == 255
+    eng.handle({"cmd": "undo"}); eng.handle({"cmd": "undo"})
+    assert eng.fixtures == []                     # скасовано і додавання приладу
+    with pytest.raises(ValueError):
+        eng.handle({"cmd": "undo"})
+    # невдала команда не створює кроку
+    with pytest.raises(ValueError):
+        eng.handle({"cmd": "set_master", "value": 999})
+    assert eng.state()["undo"] is None
+    # нова дія очищає «повторити»
+    eng.handle({"cmd": "redo"})
+    eng.handle({"cmd": "set_master", "value": 10})
+    assert eng.state()["redo"] is None

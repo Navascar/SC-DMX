@@ -54,6 +54,10 @@ function flush() {
 }
 
 function onMessage(m) {
+  if (m.type === "state" && pendingUndo) {
+    toast(pendingUndo === "undo" ? "Дію скасовано" : "Дію повторено", true);
+    pendingUndo = null;
+  }
   if (m.type === "state") {
     if (serverVersion && m.state.version !== serverVersion) return location.reload();
     serverVersion = m.state.version;
@@ -87,6 +91,7 @@ function onMessage(m) {
   } else if (m.type === "bye") {
     quitting = true;
   } else if (m.type === "error") {
+    pendingUndo = null;
     if (addPending !== null) addPending = null;
     toast(m.message);
   }
@@ -100,10 +105,49 @@ function toast(text, info = false) {
   const t = $("#toast");
   t.textContent = cap(text);
   t.className = "toast" + (info ? " info" : "");
-  t.hidden = false;
+  hostLayer(t);
+  try { t.hidePopover(); t.showPopover(); } catch { /* ignore */ }
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (t.hidden = true), 3500);
+  toastTimer = setTimeout(() => { try { t.hidePopover(); } catch { /* ignore */ } }, 3500);
 }
+
+// Коли відкрите модальне вікно, усе поза ним неактивне. Тому меню та сповіщення
+// переносимо всередину верхнього відкритого вікна (або назад у <body>).
+function hostLayer(node) {
+  const open = [...document.querySelectorAll("dialog[open]")];
+  const host = open[open.length - 1] || document.body;
+  if (node.parentElement !== host) {
+    try { node.hidePopover(); } catch { /* ignore */ }
+    host.append(node);
+  }
+}
+
+// ------------------------------------------------ власні вікна (замість браузерних) ---
+function uiDialog({ title = "SC DMX", text = "", input = null, ok = "OK", cancel = "Скасувати", danger = false }) {
+  return new Promise((resolve) => {
+    const dlg = $("#uiDlg");
+    $("#uiTitle").textContent = title;
+    $("#uiText").textContent = text;
+    $("#uiText").hidden = !text;
+    const inp = $("#uiInput");
+    inp.hidden = input === null;
+    inp.value = input ?? "";
+    $("#uiOk").textContent = ok;
+    $("#uiCancel").textContent = cancel;
+    $("#uiCancel").hidden = cancel === null;
+    dlg.classList.toggle("danger", danger);
+    let result = null;
+    const finish = (value) => { result = value; dlg.close(); };
+    $("#uiOk").onclick = () => finish(input === null ? true : inp.value);
+    $("#uiCancel").onclick = () => finish(input === null ? false : null);
+    inp.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); finish(inp.value); } };
+    dlg.addEventListener("close", () => resolve(result ?? (input === null ? false : null)), { once: true });
+    dlg.showModal();
+    if (input !== null) { inp.focus(); inp.select(); } else $("#uiOk").focus();
+  });
+}
+const uiConfirm = (text, opts = {}) => uiDialog({ title: opts.title || "Підтвердження", text, ok: opts.ok || "Так", danger: !!opts.danger });
+const uiPrompt = (title, value = "") => uiDialog({ title, input: value, ok: "Зберегти" });
 
 // ------------------------------------------------------------- рендер -----
 function renderAll() {
@@ -257,7 +301,7 @@ function buildSliders() {
   const box = $("#sliders");
   for (const [key, label, color] of SLIDERS) {
     const input = el("input", { type: "range", min: 0, max: 255, value: 0, id: "sl_" + key });
-    input.style.accentColor = color;
+    input.style.setProperty("--fill", color);
     const out = el("output", { textContent: "0" });
     input.addEventListener("pointerdown", () => (activeSlider = key));
     input.addEventListener("pointerup", () => (activeSlider = null));
@@ -434,7 +478,8 @@ function bindUpdate() {
   $("#checkUpdate").onclick = () => (updateInfo && updateInfo.available && !updateInfo.blocked
     ? ($("#settings").close(), openUpdateDialog()) : send({ cmd: "check_update" }));
   $("#quitApp").onclick = () => {
-    if (confirm("Вимкнути SC DMX? Прожектори згаснуть.")) { quitting = true; send({ cmd: "quit" }); }
+    uiConfirm("Прожектори згаснуть.", { title: "Вимкнути SC DMX?", ok: "Вимкнути", danger: true })
+      .then((ok) => { if (ok) { quitting = true; send({ cmd: "quit" }); } });
   };
 }
 
@@ -506,13 +551,15 @@ function clearColors() {
 function bindStatic() {
   $("#clearColors").onclick = clearColors;
   $("#staticEdit").onclick = () => { staticEditing = !staticEditing; renderStatic(); };
-  $("#staticReset").onclick = () => confirm("Повернути стандартний набір кольорів?") && send({ cmd: "reset_static_colors" });
+  $("#staticReset").onclick = () => uiConfirm("Власні кольори буде видалено.", { title: "Повернути стандартний набір кольорів?", ok: "Повернути" })
+    .then((ok) => ok && send({ cmd: "reset_static_colors" }));
   $("#staticAdd").onclick = () => {
     const f = selItems()[0] && itemColor(selItems()[0]);
     if (!f) return toast("Виберіть прилад і налаштуйте колір, який хочете зберегти");
-    const name = prompt("Назва кольору:", "Мій колір");
-    if (name === null) return;
-    send({ cmd: "add_static_color", name, hex: toHex(f.r, f.g, f.b), w: f.w });
+    uiPrompt("Назва кольору", "Мій колір").then((name) => {
+      if (name === null) return;
+      send({ cmd: "add_static_color", name, hex: toHex(f.r, f.g, f.b), w: f.w });
+    });
   };
 }
 
@@ -599,7 +646,8 @@ function renderScenes() {
       el("button", { className: "btn", textContent: "▶ " + name,
         onclick: () => send({ cmd: "recall_scene", name, fade: +$("#sceneFade").value || 0 }) }),
       el("button", { className: "btn small", textContent: "✕", title: "Видалити",
-        onclick: () => confirm(`Видалити сцену «${name}»?`) && send({ cmd: "delete_scene", name }) }));
+        onclick: () => uiConfirm("", { title: `Видалити сцену «${name}»?`, ok: "Видалити", danger: true })
+          .then((ok) => ok && send({ cmd: "delete_scene", name })) }));
     li.dataset.name = name;
     return li;
   }));
@@ -652,7 +700,7 @@ function renderSettings() {
         el("button", { className: "btn small", textContent: "↑", onclick: () => send({ cmd: "move_fixture", id: f.id, delta: -1 }) }),
         el("button", { className: "btn small", textContent: "↓", onclick: () => send({ cmd: "move_fixture", id: f.id, delta: 1 }) }),
         el("button", { className: "btn small", textContent: "✕", title: "Видалити",
-          onclick: () => confirm(`Видалити «${f.name}»?`) && send({ cmd: "delete_fixture", id: f.id }) })));
+          onclick: () => deleteFixtures([f.id]) })));
     return tr;
   }));
   const warn = $("#overlapWarn");
@@ -811,10 +859,14 @@ function duplicateFixture(id) {
 
 function deleteFixtures(ids) {
   const names = S.fixtures.filter((f) => ids.includes(f.id)).map((f) => f.name);
-  if (!names.length || !confirm(`Видалити ${names.length > 1 ? "прилади" : "прилад"}: ${names.join(", ")}?`)) return false;
-  for (const id of ids) send({ cmd: "delete_fixture", id });
-  ids.forEach((id) => selected.delete(id));
-  return true;
+  if (!names.length) return Promise.resolve(false);
+  return uiConfirm(names.join(", "), { title: names.length > 1 ? `Видалити прилади (${names.length})?` : "Видалити прилад?",
+                                        ok: "Видалити", danger: true }).then((ok) => {
+    if (!ok) return false;
+    for (const id of ids) send({ cmd: "delete_fixture", id });
+    ids.forEach((id) => selected.delete(id));
+    return true;
+  });
 }
 
 function bindProps() {
@@ -827,7 +879,7 @@ function bindProps() {
     $("#propDlg").close();
   };
   $("#propDup").onclick = () => { $("#propDlg").close(); duplicateFixture(propId); };
-  $("#propDelete").onclick = () => { if (deleteFixtures([propId])) $("#propDlg").close(); };
+  $("#propDelete").onclick = () => deleteFixtures([propId]).then((ok) => ok && $("#propDlg").close());
 }
 
 // ---------------------------------------------------- контекстне меню -----
@@ -857,7 +909,8 @@ function showMenu(x, y, items) {
     btn.onclick = () => { hideMenu(); it.action(); };
     menu.append(btn);
   }
-  menu.hidden = false;
+  hostLayer(menu);
+  try { menu.hidePopover(); menu.showPopover(); } catch { /* ignore */ }
   // не виходити за межі вікна
   const r = menu.getBoundingClientRect();
   menu.style.left = Math.max(4, Math.min(x, innerWidth - r.width - 4)) + "px";
@@ -865,7 +918,8 @@ function showMenu(x, y, items) {
   menu.querySelector(".item:not(:disabled)")?.focus({ preventScroll: true });
 }
 
-function hideMenu() { $("#ctxMenu").hidden = true; }
+function menuOpen() { return $("#ctxMenu").matches(":popover-open"); }
+function hideMenu() { try { $("#ctxMenu").hidePopover(); } catch { /* ignore */ } }
 
 function fixtureMenu(id) {
   const [fid, seg] = id.split("#");
@@ -948,16 +1002,19 @@ function staticMenu(index) {
     c && selected.size > 0 && { icon: "◎", label: "Застосувати до всіх приладів",
       action: () => send({ cmd: "static_color", index, ids: [] }) },
     c && { icon: "✎", label: "Перейменувати…", action: () => {
-        const name = prompt("Нова назва кольору:", c.name);
-        if (name !== null && name.trim()) send({ cmd: "rename_static_color", index, name: name.trim() });
+        uiPrompt("Нова назва кольору", c.name).then((name) => {
+          if (name && name.trim()) send({ cmd: "rename_static_color", index, name: name.trim() });
+        });
       } },
     c && { icon: "✕", label: "Видалити колір", danger: true, action: () =>
-        confirm(`Видалити колір «${c.name}»?`) && send({ cmd: "delete_static_color", index }) },
+        uiConfirm("", { title: `Видалити колір «${c.name}»?`, ok: "Видалити", danger: true })
+          .then((ok) => ok && send({ cmd: "delete_static_color", index })) },
     c && { sep: true },
     { icon: "★", label: "Зберегти поточний колір…", disabled: !firstSelColor(), action: () => $("#staticAdd").click() },
     { icon: "✎", label: staticEditing ? "Завершити редагування" : "Редагувати набір", action: () => $("#staticEdit").click() },
     { icon: "↺", label: "Скинути до стандартних", action: () =>
-        confirm("Повернути стандартний набір кольорів?") && send({ cmd: "reset_static_colors" }) },
+        uiConfirm("Власні кольори буде видалено.", { title: "Повернути стандартний набір кольорів?", ok: "Повернути" })
+          .then((ok) => ok && send({ cmd: "reset_static_colors" })) },
     { sep: true },
     { icon: "⌫", label: selected.size ? "Очистити вибрані прилади" : "Очистити всі прилади", key: "Del", action: clearColors },
   ];
@@ -988,15 +1045,41 @@ function sceneMenu(name) {
     name && { icon: "▶", label: fade ? `Викликати (перехід ${fade} с)` : "Викликати", action: () => send({ cmd: "recall_scene", name, fade }) },
     name && fade > 0 && { icon: "⚡", label: "Викликати миттєво", action: () => send({ cmd: "recall_scene", name, fade: 0 }) },
     name && { icon: "⟳", label: "Перезаписати поточним станом", action: () =>
-        confirm(`Перезаписати сцену «${name}» поточними кольорами?`) &&
-        send({ cmd: "save_scene", name, with_effect: $("#sceneWithEffect").checked }) },
+        uiConfirm("", { title: `Перезаписати сцену «${name}» поточними кольорами?`, ok: "Перезаписати" })
+          .then((ok) => ok && send({ cmd: "save_scene", name, with_effect: $("#sceneWithEffect").checked })) },
     name && { icon: "✕", label: "Видалити сцену", danger: true, action: () =>
-        confirm(`Видалити сцену «${name}»?`) && send({ cmd: "delete_scene", name }) },
+        uiConfirm("", { title: `Видалити сцену «${name}»?`, ok: "Видалити", danger: true })
+          .then((ok) => ok && send({ cmd: "delete_scene", name })) },
     name && { sep: true },
     { icon: "＋", label: "Зберегти нову сцену…", action: () => {
-        const n = prompt("Назва сцени:", "");
-        if (n && n.trim()) send({ cmd: "save_scene", name: n.trim(), with_effect: $("#sceneWithEffect").checked });
+        uiPrompt("Назва сцени", "").then((n) => {
+          if (n && n.trim()) send({ cmd: "save_scene", name: n.trim(), with_effect: $("#sceneWithEffect").checked });
+        });
       } },
+  ];
+}
+
+// меню для текстових полів: вирізати / копіювати / вставити / виділити все
+function inputMenu(inp) {
+  const hasSel = inp.selectionStart !== inp.selectionEnd && inp.type !== "number";
+  const editable = !inp.readOnly && !inp.disabled;
+  const selText = () => inp.value.slice(inp.selectionStart ?? 0, inp.selectionEnd ?? 0);
+  const insert = (text) => {
+    inp.focus();
+    if (inp.type === "number") inp.value = text.trim();
+    else inp.setRangeText(text, inp.selectionStart, inp.selectionEnd, "end");
+    inp.dispatchEvent(new Event("input", { bubbles: true }));
+  };
+  return [
+    { icon: "✂", label: "Вирізати", key: "Ctrl+X", disabled: !hasSel || !editable, action: () => {
+        navigator.clipboard?.writeText(selText()); insert("");
+      } },
+    { icon: "⧉", label: "Копіювати", key: "Ctrl+C", disabled: !hasSel && inp.type !== "number",
+      action: () => navigator.clipboard?.writeText(inp.type === "number" ? inp.value : selText()) },
+    { icon: "📋", label: "Вставити", key: "Ctrl+V", disabled: !editable, action: () =>
+        navigator.clipboard?.readText().then(insert).catch(() => toast("Немає доступу до буфера обміну")) },
+    { sep: true },
+    { icon: "☰", label: "Виділити все", key: "Ctrl+A", action: () => { inp.focus(); inp.select(); } },
   ];
 }
 
@@ -1015,9 +1098,27 @@ function fixturesPanelMenu() {
   ];
 }
 
+const UNDO_NAMES = {
+  set_color: "зміну кольору", static_color: "статичний колір", clear: "очищення", preset: "пресет",
+  set_master: "майстер", blackout: "Blackout", set_effect: "зміну ефекту", add_fixture: "додавання приладу",
+  update_fixture: "зміну приладу", delete_fixture: "видалення приладу", move_fixture: "переміщення приладу",
+  save_scene: "збереження сцени", recall_scene: "виклик сцени", delete_scene: "видалення сцени",
+  save_profile: "збереження профілю", delete_profile: "видалення профілю", add_static_color: "новий колір",
+  delete_static_color: "видалення кольору", rename_static_color: "перейменування кольору",
+  reset_static_colors: "скидання кольорів",
+};
+const undoName = (c) => UNDO_NAMES[c] || "дію";
+
+let pendingUndo = null;
+function undo() { pendingUndo = "undo"; send({ cmd: "undo" }); }
+function redo() { pendingUndo = "redo"; send({ cmd: "redo" }); }
+
 function generalMenu() {
   const u = updateInfo || {};
   return [
+    { icon: "↶", label: S.undo ? `Скасувати ${undoName(S.undo)}` : "Скасувати", key: "Ctrl+Z", disabled: !S.undo, action: undo },
+    { icon: "↷", label: S.redo ? `Повторити ${undoName(S.redo)}` : "Повторити", key: "Ctrl+Y", disabled: !S.redo, action: redo },
+    { sep: true },
     { icon: "＋", label: "Додати прилад…", action: openAdd },
     S.fixtures.length > 0 && { icon: "☰", label: "Вибрати всі прилади", key: "Ctrl+A", action: () => $("#selAll").click() },
     selected.size > 0 && { icon: "○", label: "Зняти вибір", key: "Esc", action: () => $("#selNone").click() },
@@ -1034,9 +1135,11 @@ function generalMenu() {
 
 function bindContextMenu() {
   document.addEventListener("contextmenu", (e) => {
-    // у полях введення лишаємо стандартне меню (копіювати/вставити)
-    if (e.target instanceof Element && e.target.matches("input[type=text], input:not([type]), input[type=number], textarea")) return;
-    e.preventDefault();
+    e.preventDefault();  // меню браузера не показуємо ніде
+    const target = e.target instanceof Element ? e.target : document.body;
+    if (target.matches("input:not([type=range]):not([type=checkbox]), textarea")) {
+      return showMenu(e.clientX, e.clientY, inputMenu(target));
+    }
     if (!S || document.querySelector("dialog[open]")) return hideMenu();
     const cell = e.target.closest(".lamp.bar span");
     const tile = e.target.closest(".fx");
@@ -1050,7 +1153,10 @@ function bindContextMenu() {
     } else if (zone === "fixtures") {
       items = fixturesPanelMenu();
     } else if (zone === "color") {
-      items = colorMenu();
+      const sc = target.closest("#sceneList li[data-name]");
+      if (sc) items = sceneMenu(sc.dataset.name);
+      else if (target.closest("[data-block=scenes]")) items = sceneMenu(null);
+      else items = colorMenu();
     } else if (zone === "side") {
       // права колонка містить три блоки: статичні кольори, ефекти, сцени
       const st = e.target.closest(".static-btn");
@@ -1059,21 +1165,24 @@ function bindContextMenu() {
       if (st) items = staticMenu(+st.dataset.index);
       else if (sc) items = sceneMenu(sc.dataset.name);
       else if (block === "effects") items = effectMenu();
-      else if (block === "scenes") items = sceneMenu(null);
       else items = staticMenu(null);
     } else {
       items = generalMenu();
     }
     showMenu(e.clientX, e.clientY, items);
   });
-  document.addEventListener("pointerdown", (e) => { if (!e.target.closest("#ctxMenu")) hideMenu(); }, true);
+  document.addEventListener("pointerdown", (e) => {
+    if (!(e.target instanceof Element && e.target.closest("#ctxMenu"))) hideMenu();
+  }, true);
+  // Esc при відкритому меню закриває лише меню, а не вікно під ним
+  document.addEventListener("cancel", (e) => { if (menuOpen()) { e.preventDefault(); hideMenu(); } }, true);
   addEventListener("blur", hideMenu);
   addEventListener("resize", hideMenu);
   document.addEventListener("scroll", hideMenu, true);
   $("#ctxMenu").addEventListener("keydown", (e) => {
     const items = [...$("#ctxMenu").querySelectorAll(".item:not(:disabled)")];
     const i = items.indexOf(document.activeElement);
-    if (e.key === "Escape") { hideMenu(); e.stopPropagation(); }
+    if (e.key === "Escape") { hideMenu(); e.preventDefault(); e.stopPropagation(); }
     if (e.key === "ArrowDown") { e.preventDefault(); items[(i + 1) % items.length]?.focus(); }
     if (e.key === "ArrowUp") { e.preventDefault(); items[(i - 1 + items.length) % items.length]?.focus(); }
   });
@@ -1231,6 +1340,21 @@ function bindEditableOutputs() {
   }, true);
 }
 
+// ------------------------------------------------- заливка повзунків -----
+// --p (0..1) задає, наскільки заповнена доріжка; при максимумі — до самого кінця.
+function paintRange(r) {
+  const min = +r.min || 0, max = r.max === "" ? 100 : +r.max;
+  const p = max > min ? (+r.value - min) / (max - min) : 0;
+  if (r._p !== p) { r._p = p; r.style.setProperty("--p", p); }
+}
+function paintAllRanges() { document.querySelectorAll("input[type=range]").forEach(paintRange); }
+function bindRangePaint() {
+  document.addEventListener("input", (e) => { if (e.target.matches?.("input[type=range]")) paintRange(e.target); }, true);
+  // значення змінюються й програмно (оновлення стану) — перефарбовуємо регулярно, це дешево
+  setInterval(paintAllRanges, 120);
+  paintAllRanges();
+}
+
 // ------------------------------------------------------------- старт ------
 function init() {
   buildSliders();
@@ -1239,6 +1363,7 @@ function init() {
   bindStatic();
   $("#presetOff").onclick = () => send({ cmd: "preset", ids: [...selected], n: 0 });
   bindEditableOutputs();
+  bindRangePaint();
   bindUpdate();
   bindProps();
   bindTest();
@@ -1267,13 +1392,18 @@ function init() {
   };
   document.addEventListener("keydown", (e) => {
     const ctrlA = (e.ctrlKey || e.metaKey) && e.code === "KeyA";
+    const ctrl = e.ctrlKey || e.metaKey;
+    const isUndo = ctrl && e.code === "KeyZ" && !e.shiftKey;
+    const isRedo = ctrl && (e.code === "KeyY" || (e.code === "KeyZ" && e.shiftKey));
     // у текстовому полі Ctrl+A виділяє лише його текст (стандартна поведінка)
     const t = e.target instanceof Element ? e.target : document.body;
-    if (t.matches("input, textarea, [contenteditable]")) return;
-    if (document.querySelector("dialog[open]") || !$("#ctxMenu").hidden) {
-      if (ctrlA) e.preventDefault();  // не виділяти текст вікна
+    if (t.matches("input:not([type=range]):not([type=checkbox]), textarea, [contenteditable]")) return;  // у полях — своє скасування
+    if (document.querySelector("dialog[open]") || menuOpen()) {
+      if (ctrlA || isUndo || isRedo) e.preventDefault();  // не виділяти текст вікна
       return;
     }
+    if (isUndo) { e.preventDefault(); undo(); return; }
+    if (isRedo) { e.preventDefault(); redo(); return; }
     if (t.matches("select")) return;
     // e.code — фізична клавіша, тож працює і на українській розкладці
     if (ctrlA) { e.preventDefault(); $("#selAll").click(); return; }

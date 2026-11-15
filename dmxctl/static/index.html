@@ -57,6 +57,17 @@
       <button class="btn small" id="presetOff" type="button">Вимкнути пресет</button>
     </div>
     <div id="presetGrid" class="preset-grid"></div>
+    <div data-block="scenes" class="color-scenes">
+    <div class="panel-head"><h2>Сцени</h2></div>
+    <div class="form">
+      <div class="row">
+        <input id="sceneName" placeholder="Назва сцени">
+        <button class="btn primary" id="sceneSave">Зберегти</button>
+      </div>
+      <label class="check"><input type="checkbox" id="sceneWithEffect"> Зберегти разом з ефектом</label>
+      <label>Час переходу, с <input id="sceneFade" type="number" min="0" max="60" step="0.5" value="1"></label>
+      <ul id="sceneList" class="scene-list"></ul>
+    </div>
   </section>
 
   <section class="panel side-panel" data-zone="side">
@@ -90,17 +101,6 @@
       </div>
     </div>
 
-    </div>
-    <div data-block="scenes">
-    <div class="panel-head"><h2>Сцени</h2></div>
-    <div class="form">
-      <div class="row">
-        <input id="sceneName" placeholder="Назва сцени">
-        <button class="btn primary" id="sceneSave">Зберегти</button>
-      </div>
-      <label class="check"><input type="checkbox" id="sceneWithEffect"> Зберегти разом з ефектом</label>
-      <label>Час переходу, с <input id="sceneFade" type="number" min="0" max="60" step="0.5" value="1"></label>
-      <ul id="sceneList" class="scene-list"></ul>
     </div>
     </div>
   </section>
@@ -272,9 +272,19 @@
   </div>
 </dialog>
 
-<div id="ctxMenu" class="ctx-menu" role="menu" hidden></div>
+<div id="ctxMenu" class="ctx-menu" role="menu" popover="manual"></div>
 
-<div id="toast" class="toast" hidden></div>
+<dialog id="uiDlg" class="small-dlg ui-dlg">
+  <h2 id="uiTitle"></h2>
+  <p id="uiText"></p>
+  <input id="uiInput" autocomplete="off">
+  <div class="row ui-actions">
+    <button class="btn" id="uiCancel" type="button">Скасувати</button>
+    <button class="btn primary" id="uiOk" type="button">OK</button>
+  </div>
+</dialog>
+
+<div id="toast" class="toast" popover="manual"></div>
 <script src="/static/app.js"></script>
 </body>
 </html>
