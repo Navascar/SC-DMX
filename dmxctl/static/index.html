@@ -44,15 +44,31 @@
 
   <section class="panel color-panel" data-zone="color">
     <div class="panel-head">
-      <h2>Колір</h2>
+      <h2 id="colorTitle">Колір</h2>
+      <div class="pane-tabs" id="paneTabs" hidden>
+        <button type="button" data-pane="presets" class="active">Пресети</button>
+        <button type="button" data-pane="color">Колір</button>
+      </div>
       <span id="selInfo" class="muted grow-text">Нічого не вибрано</span>
-      <button class="btn small presets-btn" id="openPresets" type="button" hidden>▦ Пресети</button>
     </div>
-    <div class="picker-row">
-      <canvas id="wheel" width="220" height="220" aria-label="Колірне коло"></canvas>
-      <div class="swatches" id="swatches"></div>
+    <div id="colorPane">
+      <div class="picker-row">
+        <canvas id="wheel" width="220" height="220" aria-label="Колірне коло"></canvas>
+        <div class="swatches" id="swatches"></div>
+      </div>
+      <div class="sliders" id="sliders"></div>
     </div>
-    <div class="sliders" id="sliders"></div>
+    <div id="presetPane" hidden>
+      <div id="presetGrid" class="preset-grid"></div>
+      <div class="slider preset-speed">
+        <label for="presetSpeed">Швидкість</label>
+        <input id="presetSpeed" type="range" min="0" max="255" value="128">
+        <output id="presetSpeedVal">50%</output>
+      </div>
+      <div class="row preset-actions">
+        <button class="btn" id="presetOff" type="button">Вимкнути пресет</button>
+      </div>
+    </div>
     <div data-block="scenes" class="color-scenes">
     <div class="panel-head"><h2>Сцени</h2></div>
     <div class="form">
@@ -270,22 +286,6 @@
 </dialog>
 
 <div id="ctxMenu" class="ctx-menu" role="menu" popover="manual"></div>
-
-<dialog id="presetDlg" class="float-dlg">
-  <div class="dialog-head drag-handle">
-    <h2 id="presetTitle">Пресети</h2>
-    <button class="btn ghost" id="presetClose" type="button" aria-label="Закрити">✕</button>
-  </div>
-  <div id="presetGrid" class="preset-grid"></div>
-  <div class="slider preset-speed">
-    <label for="presetSpeed">Швидкість</label>
-    <input id="presetSpeed" type="range" min="0" max="255" value="128">
-    <output id="presetSpeedVal">50%</output>
-  </div>
-  <div class="row preset-actions">
-    <button class="btn" id="presetOff" type="button">Вимкнути пресет</button>
-  </div>
-</dialog>
 
 <dialog id="uiDlg" class="small-dlg ui-dlg">
   <h2 id="uiTitle"></h2>

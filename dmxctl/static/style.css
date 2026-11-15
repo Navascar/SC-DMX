@@ -315,3 +315,11 @@ input, textarea, [contenteditable] { -webkit-user-select: text; user-select: tex
   .monitor-panel { padding: 10px 14px; }
   .monitor { max-height: 28vh; overflow-y: auto; }
 }
+
+/* перемикач «Пресети / Колір» для LED-барів */
+.pane-tabs { display: inline-flex; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 2px; }
+.pane-tabs button { border: 0; background: none; color: var(--muted); font: 600 12px/1 system-ui, sans-serif;
+  padding: 6px 12px; border-radius: 6px; cursor: pointer; }
+.pane-tabs button.active { background: #e5484d; color: #fff; }
+.pane-tabs button[data-pane=color].active { background: var(--accent); }
+#presetPane .preset-actions { justify-content: flex-start; }

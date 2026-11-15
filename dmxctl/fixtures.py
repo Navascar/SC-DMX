@@ -168,6 +168,8 @@ def render_fixture(universe: bytearray, fx: Fixture, channels: list[str],
     scale = 1.0 if has_dim and level > 0 else level
     base = fx.address - 1
     colors = color if isinstance(color, list) else [color]
+    # немає білого каналу — білий додається до R, G, B (повзунок «Білий» працює і для RGB)
+    mix_white = "w" not in channels
     seen: dict[str, int] = {}
     for i, role in enumerate(channels):
         ch = base + i
@@ -176,7 +178,11 @@ def render_fixture(universe: bytearray, fx: Fixture, channels: list[str],
         if role in COLOR_KEYS:
             k = seen.get(role, 0)
             seen[role] = k + 1
-            v = colors[min(k, len(colors) - 1)].get(role, 0.0) * scale
+            c = colors[min(k, len(colors) - 1)]
+            raw = c.get(role, 0.0)
+            if mix_white and role in ("r", "g", "b"):
+                raw = min(255.0, raw + c.get("w", 0.0))
+            v = raw * scale
         elif role == "dim":
             v = 255.0 * level
         elif role == "strobe":

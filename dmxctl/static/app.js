@@ -360,7 +360,7 @@ function syncSliders() {
   const first = items[0] && itemColor(items[0]);
   for (const row of $("#sliders").children) {
     const key = row.dataset.key;
-    const always = ["r", "g", "b", "dimmer"].includes(key);
+    const always = ["r", "g", "b", "w", "dimmer"].includes(key);
     row.hidden = !always && !roles.has(key);
     if (first && activeSlider !== key) {
       row.children[1].value = first[key];
@@ -485,24 +485,6 @@ function bindUpdate() {
   };
 }
 
-// ------------------------------------------------ перетягування вікон -----
-function bindDrag(win, handle) {
-  handle.addEventListener("pointerdown", (e) => {
-    if (e.target.closest("button")) return;
-    const r = win.getBoundingClientRect();
-    const dx = e.clientX - r.left, dy = e.clientY - r.top;
-    handle.setPointerCapture(e.pointerId);
-    const move = (ev) => {
-      win.style.left = Math.max(0, Math.min(innerWidth - r.width, ev.clientX - dx)) + "px";
-      win.style.top = Math.max(0, Math.min(innerHeight - 40, ev.clientY - dy)) + "px";
-      win.style.right = "auto";
-    };
-    const up = () => { handle.removeEventListener("pointermove", move); handle.removeEventListener("pointerup", up); };
-    handle.addEventListener("pointermove", move);
-    handle.addEventListener("pointerup", up);
-  });
-}
-
 // --------------------------------------------------------------- пресети ---
 // вибрані прилади, що мають вбудовані пресети (LED-бари)
 function presetTargets() {
@@ -511,11 +493,24 @@ function presetTargets() {
   return S.fixtures.filter((f) => ids.includes(f.id) && bars.has(f.id));
 }
 
+// Панель «Колір»: для вибраного LED-бару її місце займають пресети (перемикач «Пресети / Колір»)
+let colorPane = "color";
+
+function setPane(pane) {
+  colorPane = pane;
+  const bars = presetTargets().length > 0;
+  const showPresets = bars && pane === "presets";
+  $("#presetPane").hidden = !showPresets;
+  $("#colorPane").hidden = showPresets;
+  $("#paneTabs").hidden = !bars;
+  $("#colorTitle").hidden = bars;
+  for (const b of $("#paneTabs").children) b.classList.toggle("active", b.dataset.pane === (showPresets ? "presets" : "color"));
+}
+
 function openPresets() {
   if (!presetTargets().length) return toast("Виберіть LED-бар");
-  const dlg = $("#presetDlg");
   renderPresets();
-  if (!dlg.open) dlg.show();
+  setPane("presets");
 }
 
 const PROGRAM_GROUPS = [["color", "Кольори"], ["effect", "Ефекти"], ["gradient", "Градієнти"], ["sound", "Звук"]];
@@ -559,13 +554,8 @@ function renderPresets() {
   if (!S) return;
   buildPresets();
   const targets = presetTargets();
-  const btn = $("#openPresets");
-  btn.hidden = !targets.length;
-  btn.classList.toggle("on", targets.some((f) => f.preset));
-  btn.textContent = targets.length === 1 && targets[0].preset ? `▦ ${programName(targets[0].preset)}` : "▦ Пресети";
-  const dlg = $("#presetDlg");
-  if (!targets.length) { if (dlg.open) dlg.close(); return; }
-  $("#presetTitle").textContent = "Пресети · " + (targets.length === 1 ? targets[0].name : `${targets.length} бари`);
+  setPane(colorPane);
+  if (!targets.length) return;
   const used = new Map();
   for (const f of targets) if (f.preset) used.set(f.preset, (used.get(f.preset) || 0) + 1);
   $("#presetGrid").querySelectorAll("button[data-n]").forEach((b) => {
@@ -1020,7 +1010,7 @@ function fixtureMenu(id) {
         S.fixtures.filter((x) => x.profile === f.profile).forEach((x) => selected.add(x.id));
         refreshSelection(); syncSliders();
       } },
-    (S.preset_fixtures || []).some((x) => fixturesInSel.includes(x)) && { icon: "▦", label: "Пресети…", action: openPresets },
+    (S.preset_fixtures || []).some((x) => fixturesInSel.includes(x)) && { icon: "▦", label: "Пресети", action: openPresets },
     fixturesInSel.length === 1 && { icon: "⚙", label: "Властивості…", key: "2×клік", action: () => openProps(fid) },
     fixturesInSel.length === 1 && { icon: "⧉", label: "Дублювати", action: () => duplicateFixture(fid) },
     whole.length > 0 && { sep: true },
@@ -1435,7 +1425,7 @@ function init() {
   buildWheel();
   bindStatic();
   $("#presetOff").onclick = () => send({ cmd: "preset", ids: presetTargets().map((f) => f.id), n: 0 });
-  $("#openPresets").onclick = openPresets;
+  for (const b of $("#paneTabs").children) b.onclick = () => setPane(b.dataset.pane);
   const sp = $("#presetSpeed");
   sp.addEventListener("pointerdown", () => (activeSlider = "presetSpeed"));
   sp.addEventListener("pointerup", () => (activeSlider = null));
@@ -1443,8 +1433,7 @@ function init() {
     $("#presetSpeedVal").textContent = Math.round((sp.value / 255) * 100) + "%";
     sendThrottled("presetSpeed", { cmd: "preset", ids: presetTargets().map((f) => f.id), speed: +sp.value });
   });
-  $("#presetClose").onclick = () => $("#presetDlg").close();
-  bindDrag($("#presetDlg"), $("#presetDlg .drag-handle"));
+
   bindEditableOutputs();
   bindRangePaint();
   bindUpdate();
@@ -1493,7 +1482,6 @@ function init() {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.code === "KeyB") send({ cmd: "blackout" });
     if (e.key === "Escape") {
-      if ($("#presetDlg").open) { $("#presetDlg").close(); return; }
       $("#selNone").click();
     }
     if (e.key === "Delete" || e.key === "Backspace" || e.key === "0") { e.preventDefault(); clearColors(); }

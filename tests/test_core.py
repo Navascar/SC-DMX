@@ -386,3 +386,14 @@ def test_presets_only_for_bars(tmp_path):
     assert par.preset == 5 and eng.render(0)[24] == 55
     eng.handle({"cmd": "update_fixture", "id": par.id, "presets": False})
     assert par.preset is None
+
+
+def test_white_mixes_into_rgb_without_white_channel(tmp_path):
+    eng = Engine(tmp_path / "cfg.json")
+    eng.handle({"cmd": "add_fixture", "profile": "RGB (3 кан.)", "address": 1})
+    eng.handle({"cmd": "add_fixture", "profile": "RGBW (4 кан.)", "address": 4})
+    rgb, rgbw = eng.fixtures
+    eng.handle({"cmd": "set_color", "ids": [rgb.id, rgbw.id], "r": 200, "g": 0, "b": 50, "w": 100})
+    f = eng.render(0)
+    assert list(f[0:3]) == [255, 100, 150]       # RGB: білий додано до кожного кольору (з обмеженням 255)
+    assert list(f[3:7]) == [200, 0, 50, 100]     # RGBW: білий — у свій канал
