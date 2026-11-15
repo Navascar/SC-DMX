@@ -177,7 +177,7 @@
   </div>
 
   <div id="tabProfiles" class="tab">
-    <p class="hint">Ролі каналів: <code>r g b w a uv</code> — кольори, <code>dim</code> — диммер, <code>strobe</code> — строб, <code>zero</code> — завжди 0, <code>full</code> — завжди 255. Порядок має відповідати інструкції до прожектора.</p>
+    <p class="hint">Ролі каналів: <code>r g b w a uv</code> — кольори, <code>dim</code> — диммер, <code>strobe</code> — строб, <code>zero</code> — завжди 0, <code>full</code> — завжди 255, <code>=N</code> — завжди значення N (наприклад <code>=10</code> для каналу режиму). Найпростіше зібрати профіль через подвійний клік по приладу → «Тест каналів». Порядок має відповідати інструкції до прожектора.</p>
     <ul id="profileList" class="profile-list"></ul>
     <h3>Новий / змінити профіль</h3>
     <div class="form">
@@ -256,6 +256,23 @@
     <label>Профіль (режим DMX на приладі) <select id="propProfile"></select></label>
     <p id="propInfo" class="hint"></p>
     <p id="propWarn" class="warn" hidden></p>
+    <details id="propTest" class="ch-test">
+      <summary>🔧 Тест каналів і власний профіль</summary>
+      <p class="hint">Якщо прилад поводиться дивно (вмикає вбудовані програми, кольори не ті), режим на приладі не збігається з профілем.
+        Рухайте повзунки <b>по одному</b> і дивіться, що робить прилад. Для кожного каналу виберіть, за що він відповідає.
+        Якщо канал перемикає режими або програми, знайдіть значення, на якому прилад слухається кольорів, і виберіть «фіксоване значення».
+        Потім збережіть профіль — його буде одразу призначено цьому приладу.</p>
+      <div class="row">
+        <label class="inline">Каналів для тесту <input id="testCount" type="number" min="1" max="64"></label>
+        <button class="btn small" id="testZero" type="button">Усі на 0</button>
+        <button class="btn small" id="testRelease" type="button" title="Повернути керування програмі">Скинути тест</button>
+      </div>
+      <div id="testRows" class="test-rows"></div>
+      <div class="row">
+        <input id="testProfName" placeholder="Назва профілю, напр. «Мій бар 8 кан.»">
+        <button class="btn primary" id="testSave" type="button">Зберегти профіль і призначити</button>
+      </div>
+    </details>
     <div class="row">
       <button class="btn primary" id="propSave" type="button">Зберегти</button>
       <button class="btn" id="propDup" type="button">Дублювати</button>

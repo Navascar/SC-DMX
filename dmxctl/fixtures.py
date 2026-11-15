@@ -7,7 +7,8 @@ COLOR_KEYS = ("r", "g", "b", "w", "a", "uv")
 
 # Ролі каналів:
 #   r g b w a uv — колірні канали;  dim — загальний диммер приладу;
-#   strobe — апаратний строб;  zero — завжди 0;  full — завжди 255.
+#   strobe — апаратний строб;  zero — завжди 0;  full — завжди 255;
+#   =N — завжди значення N (0..255), напр. канал режиму, який має стояти на «ручному RGB».
 ROLES = set(COLOR_KEYS) | {"dim", "strobe", "zero", "full"}
 
 # Якщо колірна роль повторюється (r g b r g b ...), прилад має кілька сегментів:
@@ -87,9 +88,16 @@ def clamp8(v: float) -> int:
 def validate_profile(channels: list[str]) -> None:
     if not channels or len(channels) > 64:
         raise ValueError("профіль має містити 1..64 каналів")
-    bad = [c for c in channels if c not in ROLES]
+    bad = [c for c in channels if c not in ROLES and fixed_value(c) is None]
     if bad:
         raise ValueError(f"невідомі ролі каналів: {', '.join(bad)}")
+
+
+def fixed_value(role: str) -> int | None:
+    """Значення ролі «=N» або None, якщо роль не фіксована."""
+    if len(role) > 1 and role[0] == "=" and role[1:].isdigit() and int(role[1:]) <= 255:
+        return int(role[1:])
+    return None
 
 
 def validate_fixture(fx: Fixture, profiles: dict[str, list[str]]) -> None:
@@ -130,6 +138,8 @@ def render_fixture(universe: bytearray, fx: Fixture, channels: list[str],
             v = fx.strobe
         elif role == "full":
             v = 255
+        elif role.startswith("="):
+            v = fixed_value(role) or 0
         else:
             v = 0
         universe[ch] = clamp8(v)

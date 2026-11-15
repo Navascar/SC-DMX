@@ -65,6 +65,8 @@ class Engine:
         self.effect: dict = {"type": "none", "ids": [], "speed": 0.5, "spread": 1.0, "colors": [],
                              "by_segment": True}
         self.universe = bytearray(DMX_CHANNELS)
+        # ручне керування окремими каналами (тест каналів); не зберігається
+        self.raw: dict[int, int] = {}
         self.live: dict[str, list[int]] = {}   # реальні кольори приладів для превʼю
         self._fade: dict | None = None
         self._t0 = time.monotonic()
@@ -146,6 +148,7 @@ class Engine:
         from . import __version__
         return {
             "version": __version__,
+            "raw": {str(ch + 1): v for ch, v in sorted(self.raw.items())},
             "fixtures": [f.to_dict() for f in self.fixtures],
             "profiles": self.profiles,
             "scenes": {k: {"fixtures": len(v["fixtures"])} for k, v in self.scenes.items()},
@@ -298,9 +301,34 @@ class Engine:
         name = str(m["name"]).strip()
         if not name:
             raise ValueError("вкажіть назву профілю")
+        if name in DEFAULT_PROFILES:
+            raise ValueError("вбудований профіль не можна змінити — дайте іншу назву")
         channels = [c.strip() for c in m["channels"]]
         validate_profile(channels)
-        self.profiles[name] = channels
+        if m.get("assign_to"):  # одразу призначити профіль приладу
+            fx = self._fx(m["assign_to"])
+            trial = Fixture.from_dict({**fx.to_dict(), "profile": name})
+            validate_fixture(trial, {**self.profiles, name: channels})
+            self.profiles[name] = channels
+            fx.profile = name
+            fx.segs = None
+        else:
+            self.profiles[name] = channels
+
+    def cmd_raw_set(self, m):
+        """Тест каналів: виставити DMX-адресу (1..512) вручну поверх усього."""
+        addr = int(m["address"])
+        if not 1 <= addr <= DMX_CHANNELS:
+            raise ValueError("адреса має бути 1..512")
+        self.raw[addr - 1] = _byte(m["value"])
+
+    def cmd_raw_clear(self, m):
+        addrs = m.get("addresses")
+        if addrs is None:
+            self.raw.clear()
+        else:
+            for a in addrs:
+                self.raw.pop(int(a) - 1, None)
 
     def cmd_delete_profile(self, m):
         name = m["name"]
@@ -424,6 +452,8 @@ class Engine:
             render_fixture(uni, fx, channels, colors, master)
             lvl = fx.dimmer / 255.0 * master
             live[fx.id] = [[round(min(255.0, c[ch] * lvl)) for ch in ("r", "g", "b", "w")] for c in colors]
+        for ch, v in self.raw.items():
+            uni[ch] = v
         self.universe = uni
         self.live = live
         return bytes(uni)

@@ -207,7 +207,10 @@ function refreshSelection() {
   }
 }
 
+let lastDmx = new Array(512).fill(0);
+
 function updateLive(m) {
+  lastDmx = m.dmx;
   const paint = (node, [r, g, b, w], glow) => {
     const rr = Math.min(255, r + w), gg = Math.min(255, g + w), bb = Math.min(255, b + w);
     node.style.background = `rgb(${rr},${gg},${bb})`;
@@ -662,6 +665,101 @@ function updatePropInfo() {
   $("#propWarn").textContent = warn ? "⚠ " + warn : "";
 }
 
+// ------------------------------------------------------------ тест каналів ---
+const TEST_ROLES = [
+  ["r", "Червоний"], ["g", "Зелений"], ["b", "Синій"], ["w", "Білий"], ["a", "Бурштин"], ["uv", "УФ"],
+  ["dim", "Диммер"], ["strobe", "Строб"], ["zero", "Не використ. (0)"], ["full", "Завжди 255"],
+  ["fixed", "Фіксоване значення"],
+];
+const tested = new Set();   // адреси, якими зараз керує тест
+
+function buildTestRows() {
+  const f = S.fixtures.find((x) => x.id === propId);
+  if (!f) return;
+  const prof = S.profiles[$("#propProfile").value] || [];
+  const start = +$("#propAddress").value || f.address;
+  const count = Math.max(1, Math.min(64, +$("#testCount").value || prof.length));
+  const prev = [...$("#testRows").children].map((r) => ({ role: r.querySelector("select").value, v: r.querySelector("input").value }));
+  $("#testRows").replaceChildren();
+  for (let i = 0; i < count; i++) {
+    const addr = start + i;
+    if (addr > 512) break;
+    let role = prev[i]?.role ?? (prof[i] || "zero");
+    let value = prev[i]?.v ?? lastDmx[addr - 1] ?? 0;
+    if (!prev[i] && role.startsWith("=")) { value = +role.slice(1); role = "fixed"; }
+    const sel = el("select", {}, ...TEST_ROLES.map(([k, t]) => el("option", { value: k, textContent: t })));
+    sel.value = TEST_ROLES.some(([k]) => k === role) ? role : "zero";
+    const range = el("input", { type: "range", min: 0, max: 255, value });
+    const out = el("output", { textContent: value });
+    const row = el("div", { className: "test-row" + (tested.has(addr) ? " live" : "") },
+      el("span", { className: "ch", innerHTML: `<b>CH${i + 1}</b> · DMX ${addr}` }), sel, range, out);
+    range.addEventListener("input", () => {
+      out.textContent = range.value;
+      tested.add(addr);
+      row.classList.add("live");
+      sendThrottled("raw" + addr, { cmd: "raw_set", address: addr, value: +range.value });
+    });
+    $("#testRows").append(row);
+  }
+}
+
+function releaseTest() {
+  if (tested.size) send({ cmd: "raw_clear", addresses: [...tested] });
+  tested.clear();
+  for (const r of $("#testRows").children) r.classList.remove("live");
+}
+
+function bindTest() {
+  $("#propTest").addEventListener("toggle", () => {
+    if ($("#propTest").open) {
+      const prof = S.profiles[$("#propProfile").value] || [];
+      if (!$("#testCount").value) $("#testCount").value = prof.length;
+      if (!$("#testProfName").value) {
+        const f = S.fixtures.find((x) => x.id === propId);
+        $("#testProfName").value = `${f ? f.name : "Прилад"} (власний)`;
+      }
+      buildTestRows();
+    }
+  });
+  $("#testCount").addEventListener("change", buildTestRows);
+  $("#propProfile").addEventListener("change", () => {
+    $("#testCount").value = (S.profiles[$("#propProfile").value] || []).length;
+    $("#testRows").replaceChildren();
+    if ($("#propTest").open) buildTestRows();
+  });
+  $("#testZero").onclick = () => {
+    for (const r of $("#testRows").children) {
+      const range = r.querySelector("input");
+      range.value = 0;
+      range.dispatchEvent(new Event("input"));
+    }
+  };
+  $("#testRelease").onclick = releaseTest;
+  $("#testSave").onclick = () => {
+    const rows = [...$("#testRows").children];
+    if (!rows.length) return toast("Немає каналів для збереження");
+    const channels = rows.map((r) => {
+      const role = r.querySelector("select").value;
+      return role === "fixed" ? "=" + r.querySelector("input").value : role;
+    });
+    const name = $("#testProfName").value.trim();
+    if (!name) return toast("Вкажіть назву профілю");
+    send({ cmd: "update_fixture", id: propId, address: +$("#propAddress").value });
+    send({ cmd: "save_profile", name, channels, assign_to: propId });
+    releaseTest();
+    $("#propDlg").close();
+    toast(`Профіль «${name}» збережено і призначено: ${channels.join(" ")}`, true);
+  };
+  // закриття вікна властивостей повертає канали програмі
+  $("#propDlg").addEventListener("close", () => {
+    releaseTest();
+    $("#propTest").open = false;
+    $("#testRows").replaceChildren();
+    $("#testCount").value = "";
+    $("#testProfName").value = "";
+  });
+}
+
 function duplicateFixture(id) {
   const f = S.fixtures.find((x) => x.id === id);
   if (!f) return;
@@ -1041,6 +1139,7 @@ function init() {
   bindStatic();
   bindUpdate();
   bindProps();
+  bindTest();
   bindContextMenu();
   bindEffects();
   bindScenes();

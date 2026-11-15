@@ -251,3 +251,25 @@ def test_udmx_streams_frames_continuously():
     out.stop()
     same = [s for s in sent if s == bytes([10, 20, 30])]
     assert len(same) >= 8, f"за 0.5 с надіслано лише {len(same)} кадрів"
+
+
+def test_fixed_roles_and_raw_channel_test(tmp_path):
+    from dmxctl.fixtures import validate_profile
+    validate_profile(["=10", "r", "g", "b"])
+    with pytest.raises(ValueError):
+        validate_profile(["=300", "r"])
+    eng = Engine(tmp_path / "cfg.json")
+    eng.handle({"cmd": "add_fixture", "profile": "RGB (3 кан.)", "address": 1})
+    fx = eng.fixtures[0]
+    # власний профіль: канал режиму на 10, потім RGB — і одразу призначити приладу
+    eng.handle({"cmd": "save_profile", "name": "Мій бар", "channels": ["=10", "r", "g", "b"], "assign_to": fx.id})
+    assert fx.profile == "Мій бар"
+    eng.handle({"cmd": "set_color", "ids": [fx.id], "hex": "#ff8000"})
+    assert list(eng.render(0)[0:4]) == [10, 255, 128, 0]
+    # тест каналів перекриває вивід і не зберігається
+    eng.handle({"cmd": "raw_set", "address": 2, "value": 7})
+    assert eng.render(0)[1] == 7 and eng.state()["raw"] == {"2": 7}
+    eng.handle({"cmd": "raw_clear"})
+    assert eng.render(0)[1] == 255
+    with pytest.raises(ValueError):
+        eng.handle({"cmd": "save_profile", "name": "RGB (3 кан.)", "channels": ["r"]})

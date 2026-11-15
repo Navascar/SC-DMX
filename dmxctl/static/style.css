@@ -217,3 +217,17 @@ input, textarea, .notes, [contenteditable] { -webkit-user-select: text; user-sel
 .clear-btn:hover { background: var(--warn); color: #241600; border-color: var(--warn); }
 .hz-hint { cursor: help; text-decoration: underline dotted #ffffff40; text-underline-offset: 3px; }
 @media (max-width: 720px) { .clear-btn span { display: none; } .clear-btn { padding: 0 10px; } }
+
+.ch-test { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--panel-2); }
+.ch-test summary { font-weight: 600; font-size: 13px; }
+.ch-test[open] summary { margin-bottom: 6px; }
+.test-rows { display: grid; gap: 4px; margin: 8px 0; max-height: 300px; overflow: auto; padding-right: 4px; }
+.test-row { display: grid; grid-template-columns: 92px 150px 1fr 36px; gap: 8px; align-items: center; font-size: 12px; }
+.test-row .ch { color: var(--muted); font-variant-numeric: tabular-nums; }
+.test-row .ch b { color: var(--text); }
+.test-row select { padding: 4px 6px; font-size: 12px; }
+.test-row output { text-align: right; font-variant-numeric: tabular-nums; }
+.test-row.live .ch b { color: var(--warn); }
+label.inline { display: flex; align-items: center; gap: 6px; }
+label.inline input { width: 70px; }
+@media (max-width: 720px) { .test-row { grid-template-columns: 70px 1fr; } .test-row input[type=range] { grid-column: 1 / -1; } }
