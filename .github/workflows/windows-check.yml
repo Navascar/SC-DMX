@@ -68,7 +68,13 @@ jobs:
           $app = Join-Path $env:LOCALAPPDATA 'SC-DMX'
           Remove-Item (Join-Path $app 'sc-dmx-window.log') -ErrorAction SilentlyContinue
           Start-Process (Join-Path ([Environment]::GetFolderPath('Programs')) 'SC DMX.lnk')
-          Start-Sleep -Seconds 20
+          # чекаємо, поки вікно запуску покаже оновлення (перший запуск після встановлення повільніший)
+          $wlog = Join-Path $app 'sc-dmx-window.log'
+          $end = (Get-Date).AddSeconds(90)
+          while ((Get-Date) -lt $end -and -not (Select-String -Path $wlog -Pattern 'Вікно запуску: update' -Quiet -ErrorAction SilentlyContinue)) {
+            Start-Sleep -Seconds 1
+          }
+          Start-Sleep -Seconds 2
           Add-Type -AssemblyName System.Windows.Forms, System.Drawing
           $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
           $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height

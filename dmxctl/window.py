@@ -20,6 +20,7 @@ BG = "#0f1115"                       # фон інтерфейсу (style.css: -
 _WINDOW_GUARD = None                 # м'ютекс «вікно вже відкрите» (Windows)
 CLOSE_SIGNAL = "__SCDMX_CLOSE__"     # заголовок сторінки, яким інтерфейс просить закрити вікно
 LOG = Path(__file__).resolve().parent.parent / "sc-dmx-window.log"
+T_START = time.monotonic()           # старт процесу вікна — щоб бачити в журналі, як швидко з'являється вікно
 
 
 def wlog(text: str) -> None:
@@ -34,11 +35,13 @@ def wlog(text: str) -> None:
 
 
 def available() -> bool:
-    """Чи встановлено Qt WebEngine (пакет PySide6-WebEngine)."""
+    """Чи встановлено Qt WebEngine (пакет PySide6-WebEngine).
+
+    Лише пошук модуля, без імпорту: імпорт рушія триває кілька секунд і відкладав би вікно запуску."""
+    import importlib.util
     try:
-        import PySide6.QtWebEngineWidgets  # noqa: F401
-        return True
-    except Exception:  # noqa: BLE001 — немає пакета або системних бібліотек
+        return importlib.util.find_spec("PySide6.QtWebEngineWidgets") is not None
+    except Exception:  # noqa: BLE001 — немає пакета PySide6
         return False
 
 
@@ -109,6 +112,7 @@ def run_window(url: str, should_close: Callable[[], bool] = lambda: False) -> in
             gate["start"]()
 
     splash_win = splash.run_splash(url, __version__, open_app, wlog)
+    wlog(f"Вікно запуску показано через {time.monotonic() - T_START:.1f} с після старту процесу")
     app.processEvents()
     from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile
     from PySide6.QtWebEngineWidgets import QWebEngineView
