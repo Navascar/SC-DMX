@@ -71,7 +71,7 @@ jobs:
           # чекаємо, поки вікно запуску покаже оновлення (перший запуск після встановлення повільніший)
           $wlog = Join-Path $app 'sc-dmx-window.log'
           $end = (Get-Date).AddSeconds(90)
-          while ((Get-Date) -lt $end -and -not (Select-String -Path $wlog -Pattern 'Вікно запуску: update' -Quiet -ErrorAction SilentlyContinue)) {
+          while ((Get-Date) -lt $end -and -not ((Test-Path $wlog) -and (Select-String -Path $wlog -Pattern 'Вікно запуску: update' -Quiet))) {
             Start-Sleep -Seconds 1
           }
           Start-Sleep -Seconds 2
