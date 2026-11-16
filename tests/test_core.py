@@ -691,3 +691,51 @@ def test_output_pauses_on_empty_frame():
         assert out.frames_sent > n                     # непорожній кадр шлеться безперервно
     finally:
         out.stop()
+
+
+def _scene_file(effect, fixtures=None):
+    from dmxctl.engine import SCENE_FORMAT
+    return {"format": SCENE_FORMAT, "version": 1, "name": "X", "effect": effect,
+            "fixtures": fixtures or [{"id": "f1", "address": 1, "channels": ["r", "g", "b"], "name": "A",
+                                      "state": {"r": 10}}]}
+
+
+@pytest.mark.parametrize("effect", [
+    {"type": "rainbow", "ids": ["f1"], "colors": ["zz", 5, "#00ff00"]},   # зіпсовані кольори
+    {"type": "rainbow", "ids": ["f1"], "speed": "fast", "spread": None},  # нечислові параметри
+    {"type": "rainbow"},                                                 # без частини ключів
+    {"type": "rainbow", "ids": 5, "speed": float("nan")},
+])
+def test_scene_file_with_broken_effect_does_not_freeze_light(tmp_path, effect):
+    """Сцена з файлу з некоректним ефектом не ламає рендер, а ефект можна зупинити."""
+    eng = Engine(tmp_path / "cfg.json")
+    eng.handle({"cmd": "add_fixture", "profile": "RGB (3 кан.)", "address": 1})
+    eng.handle({"cmd": "import_scene", "data": _scene_file(effect)})
+    eng.handle({"cmd": "recall_scene", "name": "X"})
+    eng.render(1.0)
+    assert all(c == "#00ff00" for c in eng.effect["colors"])
+    eng.handle({"cmd": "set_effect", "type": "none"})          # кнопка «Зупинити»
+    assert eng.effect["type"] == "none"
+    eng.render(2.0)
+
+
+def test_scene_import_is_all_or_nothing(tmp_path, monkeypatch):
+    """Якщо імпорт упав посередині, доданий прилад і профіль прибираються."""
+    from dmxctl import engine as engine_mod
+    eng = Engine(tmp_path / "cfg.json")
+
+    def boom(*_a, **_k):
+        raise ValueError("зіпсований стан")
+    monkeypatch.setattr(engine_mod, "_scene_state", boom)
+    with pytest.raises(ValueError):
+        eng.handle({"cmd": "import_scene", "data": _scene_file(None)})
+    assert eng.fixtures == [] and eng.scenes == {}
+
+
+def test_scene_file_item_without_id_is_skipped(tmp_path):
+    eng = Engine(tmp_path / "cfg.json")
+    eng.handle({"cmd": "add_fixture", "profile": "RGB (3 кан.)", "address": 1})
+    items = [{"address": 1, "channels": ["r", "g", "b"], "state": {"r": 1}},
+             {"id": "f1", "address": 1, "channels": ["r", "g", "b"], "state": {"r": 9}}]
+    eng.handle({"cmd": "import_scene", "data": _scene_file(None, items)})
+    assert "X" in eng.scenes

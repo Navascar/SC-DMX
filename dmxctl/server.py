@@ -142,7 +142,10 @@ async def window_watch(app: web.Application) -> None:
         if _open_sockets(app):
             continue
         now = loop.time()
-        if not w["seen"] and now - started > STARTUP_TIMEOUT_S:
+        # вікно запуску ще не відкрило програму (напр. чекає «Оновити»), але живе й опитує сервер —
+        # відлік «вікно так і не відкрилося» починається від його останнього запиту
+        since = max(started, w.get("splash_at") or 0.0)
+        if not w["seen"] and now - since > STARTUP_TIMEOUT_S:
             log.info("Вікно програми не відкрилося — вихід")
             request_stop(app, 0)
             return
@@ -293,6 +296,7 @@ SPLASH_HEADER = "X-SCDMX-Splash"
 def _splash_request(request: web.Request) -> None:
     if not _is_local(request) or request.headers.get(SPLASH_HEADER) != "1":
         raise web.HTTPForbidden(text="Forbidden")
+    request.app[WATCH]["splash_at"] = asyncio.get_running_loop().time()   # вікно запуску живе
 
 
 async def update_api(request: web.Request) -> web.Response:

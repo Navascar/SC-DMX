@@ -115,15 +115,23 @@ def install_from_zip(zip_path: Path, app_dir: Path = APP_DIR) -> None:
                     shutil.copy2(item, dest)
         except Exception:
             log.exception("Помилка встановлення — відкат")
-            for item in list(app_dir.iterdir()):
-                if item.name not in KEEP:
-                    shutil.rmtree(item, ignore_errors=True) if item.is_dir() else item.unlink(missing_ok=True)
-            for item in backup.iterdir():
-                shutil.move(str(item), app_dir / item.name)
+            restore_backup(app_dir)
             raise
         finally:
             if not any(backup.iterdir()):
                 backup.rmdir()
+
+
+def restore_backup(app_dir: Path = APP_DIR) -> None:
+    """Повертає файли попередньої версії з .update-backup (усе, крім KEEP)."""
+    backup = app_dir / ".update-backup"
+    if not backup.is_dir() or not any(backup.iterdir()):
+        return
+    for item in list(app_dir.iterdir()):
+        if item.name not in KEEP:
+            shutil.rmtree(item, ignore_errors=True) if item.is_dir() else item.unlink(missing_ok=True)
+    for item in list(backup.iterdir()):
+        shutil.move(str(item), app_dir / item.name)
 
 
 def install_requirements(app_dir: Path = APP_DIR) -> None:
@@ -137,7 +145,7 @@ def install_requirements(app_dir: Path = APP_DIR) -> None:
         raise RuntimeError("pip: " + (res.stderr or res.stdout).strip()[-500:])
 
 
-def download_and_install(url: str, progress=lambda text: None) -> None:
+def download_and_install(url: str, progress=lambda text: None, app_dir: Path = APP_DIR) -> None:
     reason = can_self_update()
     if reason:
         raise RuntimeError(reason)
@@ -153,6 +161,13 @@ def download_and_install(url: str, progress=lambda text: None) -> None:
                 if total:
                     progress(f"Завантаження… {done * 100 // total}%")
         progress("Встановлення файлів…")
-        install_from_zip(zpath)
+        install_from_zip(zpath, app_dir)
     progress("Встановлення залежностей…")
-    install_requirements()
+    try:
+        install_requirements(app_dir)
+    except Exception:
+        # без потрібних компонентів нова версія може не запуститися, а оновлення вже не
+        # пропонувалося б (версія «нова») — повертаємо попередню версію
+        log.exception("Компоненти нової версії не встановилися — повертаю попередню версію")
+        restore_backup(app_dir)
+        raise

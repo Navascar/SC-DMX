@@ -5,6 +5,7 @@ import asyncio
 import copy
 import json
 import logging
+import math
 import os
 import time
 import uuid
@@ -73,6 +74,39 @@ def _model(v) -> dict | None:
     if not isinstance(v, dict) or not v.get("m") or not v.get("n"):
         return None
     return {"m": str(v["m"]), "n": str(v["n"]), "mode": str(v.get("mode", ""))}
+
+
+def _clean_effect(eff) -> dict | None:
+    """Ефект зі сцени (зокрема з файлу іншого комп'ютера чи старої версії) — лише допустимі значення.
+
+    Невідомий тип — None (без ефекту); некоректні кольори відкидаються, числа обмежуються.
+    Інакше один зіпсований ефект ламав би кожен кадр рендеру."""
+    if not isinstance(eff, dict) or eff.get("type") not in EFFECTS:
+        return None
+
+    def num(key, default, lo, hi):
+        try:
+            v = float(eff.get(key, default))
+        except (TypeError, ValueError):
+            return default
+        return max(lo, min(hi, v)) if math.isfinite(v) else default
+
+    colors = []
+    for c in eff.get("colors") or []:
+        try:
+            hex_to_rgb(c)
+            colors.append(c)
+        except (AttributeError, TypeError, ValueError):
+            continue
+    ids = eff.get("ids")
+    return {
+        "type": eff["type"],
+        "ids": [str(i) for i in ids] if isinstance(ids, list) else [],
+        "speed": num("speed", 0.5, 0.01, 20.0),
+        "spread": num("spread", 1.0, 0.0, 1.0),
+        "colors": colors[:16],
+        "by_segment": bool(eff.get("by_segment", True)),
+    }
 
 
 def _scene_state(vals: dict, segments: int) -> dict:
@@ -646,16 +680,17 @@ class Engine:
         kind = m.get("type", self.effect["type"])
         if kind not in EFFECTS:
             raise ValueError(f"невідомий ефект {kind!r}")
-        colors = m.get("colors", self.effect["colors"])
-        for c in colors:
+        cur = _clean_effect(self.effect) or {"ids": [], "speed": 0.5, "spread": 1.0, "colors": [], "by_segment": True}
+        colors = m["colors"] if "colors" in m else cur["colors"]
+        for c in colors:   # перевіряємо лише те, що надіслав клієнт; старі кольори вже очищені
             hex_to_rgb(c)
         self.effect = {
             "type": kind,
-            "ids": list(m.get("ids", self.effect["ids"])),
-            "speed": max(0.01, min(20.0, float(m.get("speed", self.effect["speed"])))),
-            "spread": max(0.0, min(1.0, float(m.get("spread", self.effect["spread"])))),
+            "ids": list(m.get("ids", cur["ids"])),
+            "speed": max(0.01, min(20.0, float(m.get("speed", cur["speed"])))),
+            "spread": max(0.0, min(1.0, float(m.get("spread", cur["spread"])))),
             "colors": colors[:16],
-            "by_segment": bool(m.get("by_segment", self.effect.get("by_segment", True))),
+            "by_segment": bool(m.get("by_segment", cur["by_segment"])),
         }
 
     def cmd_save_scene(self, m):
@@ -679,8 +714,9 @@ class Engine:
             except KeyError:
                 continue
             targets[fid] = ({**{k: getattr(fx, k) for k in STATE_KEYS}, "segs": fx.segs, "preset": fx.preset}, vals)
-        if scene.get("effect"):
-            self.effect = dict(scene["effect"])
+        effect = _clean_effect(scene.get("effect"))
+        if effect:
+            self.effect = effect
         if fade > 0:
             self._fade = {"start": time.monotonic(), "dur": fade, "targets": targets}
         else:
@@ -712,6 +748,15 @@ class Engine:
                 "fixtures": fixtures, "effect": scene.get("effect")}
 
     def cmd_import_scene(self, m):
+        # усе або нічого: якщо файл зіпсований посередині, додані прилади й профілі прибираються
+        snap = self._snapshot()
+        try:
+            self._import_scene(m)
+        except Exception:
+            self._restore(snap)
+            raise
+
+    def _import_scene(self, m):
         """Сцена з файлу іншого комп'ютера.
 
         Прилади файлу зіставляються з тутешніми: за id, далі за адресою й каналами, далі за
@@ -732,7 +777,8 @@ class Engine:
         def same_ch(f: Fixture, ch) -> bool:
             return ch is None or self.profiles.get(f.profile) == ch
 
-        items = [i for i in data["fixtures"] if isinstance(i, dict) and isinstance(i.get("state"), dict)]
+        items = [i for i in data["fixtures"]
+                 if isinstance(i, dict) and isinstance(i.get("state"), dict) and i.get("id") is not None]
         pending = []
         for it in items:
             ch = it.get("channels")
@@ -783,11 +829,9 @@ class Engine:
             fid = mapping.get(str(it.get("id")))
             if fid:
                 states[fid] = _scene_state(it["state"], self._segments(self._fx(fid)))
-        effect = data.get("effect")
-        if isinstance(effect, dict) and effect.get("type") in EFFECTS:
-            effect = {**effect, "ids": [mapping[i] for i in effect.get("ids", []) if i in mapping]}
-        else:
-            effect = None
+        effect = _clean_effect(data.get("effect"))
+        if effect:
+            effect["ids"] = [mapping[i] for i in effect["ids"] if i in mapping]
         name = str(m.get("name") or data.get("name") or "Сцена").strip()[:80] or "Сцена"
         base, k = name, 2
         while name in self.scenes:

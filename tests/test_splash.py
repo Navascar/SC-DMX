@@ -48,3 +48,27 @@ def test_splash_api_only_with_header(tmp_path):
             r = await c.post("/api/quit", headers={**host, "X-SCDMX-Splash": "1"})
             assert r.status == 200 and app[STOP].is_set() and app[EXIT]["code"] == 0
     asyncio.run(run())
+
+
+def test_server_waits_while_splash_shows_update(tmp_path, monkeypatch):
+    """Поки вікно запуску показує «Оновити» (лише HTTP, без WebSocket), сервер не вимикається;
+    коли вікно зникло — вимикається, як раніше."""
+    from aiohttp.test_utils import TestClient, TestServer
+    from dmxctl import server, updater
+    monkeypatch.setattr(updater, "check", lambda: {"current": "1.0.0", "latest": "9.9.9", "available": True,
+                                                   "notes": "", "url": "http://x/SC-DMX.zip", "page": ""})
+    monkeypatch.setattr(updater, "can_self_update", lambda: None)
+    monkeypatch.setattr(server, "STARTUP_TIMEOUT_S", 0.6)
+
+    async def run():
+        app = server.make_app(str(tmp_path / "cfg.json"), background=False)
+        async with TestClient(TestServer(app)) as c:
+            h = {"Host": f"127.0.0.1:{c.port}", "X-SCDMX-Splash": "1"}
+            for _ in range(10):                       # ~2 с опитування — утричі довше за таймаут
+                upd = await (await c.get("/api/update", headers=h)).json()
+                await asyncio.sleep(0.2)
+            assert decide(upd, 5, False) == "update"
+            assert not app[server.STOP].is_set()
+            await asyncio.sleep(2.2)                  # вікно запуску зникло
+            assert app[server.STOP].is_set()
+    asyncio.run(run())

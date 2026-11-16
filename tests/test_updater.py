@@ -78,3 +78,31 @@ def test_open_external_only_http(monkeypatch):
     assert not server.open_external("javascript:alert(1)")
     assert not server.open_external("https:///nohost")
     assert opened == ["https://github.com/Navascar/SC-DMX/releases"]
+
+
+def test_failed_requirements_restore_previous_version(tmp_path, monkeypatch):
+    """Компоненти нової версії не встановилися — файли програми повертаються до попередньої версії."""
+    import io
+    app = tmp_path / "app"
+    (app / "dmxctl").mkdir(parents=True)
+    (app / "dmxctl" / "__init__.py").write_text('__version__ = "1.0.0"\n')
+    (app / "config.json").write_text("{}")
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("SC-DMX/dmxctl/__init__.py", '__version__ = "9.9.9"\n')
+        z.writestr("SC-DMX/dmxctl/new.py", "")
+        z.writestr("SC-DMX/requirements.txt", "x\n")
+
+    class Resp(io.BytesIO):
+        headers = {}
+    monkeypatch.setattr(updater, "_open", lambda url, timeout=15: Resp(buf.getvalue()))
+    monkeypatch.setattr(updater, "can_self_update", lambda: None)
+
+    def pip_fail(app_dir):
+        raise RuntimeError("pip: немає мережі")
+    monkeypatch.setattr(updater, "install_requirements", pip_fail)
+    with pytest.raises(RuntimeError):
+        updater.download_and_install("http://x/SC-DMX.zip", app_dir=app)
+    assert "1.0.0" in (app / "dmxctl" / "__init__.py").read_text()
+    assert not (app / "dmxctl" / "new.py").exists()
+    assert (app / "config.json").read_text() == "{}"          # налаштування не чіпаються
