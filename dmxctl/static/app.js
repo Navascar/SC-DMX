@@ -251,8 +251,12 @@ function setOutput(o) {
   pill.classList.toggle("ok", !!o.ok);
   pill.classList.toggle("err", !o.ok);
   const names = { udmx: "uDMX", none: "Симулятор", enttec_pro: "DMX USB Pro", open_dmx: "Open DMX", artnet: "Art-Net", sacn: "sACN" };
-  $("#outputText").textContent = (o.type ? names[o.type] + " · " : "") + cap(o.status);
-  pill.title = o.status;
+  // світло вимкнене або приладів немає — кадри не відправляються, поки щось не ввімкнуть
+  const status = o.ok && o.paused ? "пауза, світло вимкнене" : o.status;
+  $("#outputText").textContent = (o.type ? names[o.type] + " · " : "") + cap(status);
+  pill.title = o.ok && o.paused
+    ? "Кадри не відправляються, бо все світло вимкнене. Відправка продовжиться, щойно щось увімкнеться."
+    : o.status;
   $("#outStatus").textContent = cap(o.status);
 }
 
@@ -1788,7 +1792,7 @@ function renderKeys() {
     // стовпці однакові в усіх рядках: «Стандартна» · «Змінити» · «Прибрати» (порожнє місце, якщо не потрібно)
     let reset = el("span");
     if (h.id in custom) {
-      reset = el("button", { className: "btn small", type: "button", textContent: "Стандартна",
+      reset = el("button", { className: "btn small ghost", type: "button", textContent: "Стандартна",
         title: "Повернути стандартну клавішу" });
       reset.onclick = () => assignKeys(h.id, HOTKEY_BY_ID[h.id].keys, true);
     }

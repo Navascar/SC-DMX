@@ -79,6 +79,9 @@ class Output:
     kind = "none"
     refresh_hz = 40.0
     keepalive_s: float | None = None  # None — слати кожен такт
+    # Порожній кадр (немає приладів або все світло вимкнене) шлемо ще стільки секунд,
+    # щоб прилади точно згасли, а далі відправку призупиняємо до першої зміни.
+    idle_tail_s = 1.0
 
     def __init__(self, **params):
         self.params = params
@@ -90,6 +93,8 @@ class Output:
         self.status = "Зупинено"
         self.ok = False
         self.frames_sent = 0
+        self.paused = False          # відправку призупинено: кадр порожній
+        self._sent: bytes | None = None
 
     # --- API для рушія
     def set_frame(self, frame: bytes) -> None:
@@ -114,7 +119,7 @@ class Output:
 
     def info(self) -> dict:
         return {"type": self.kind, "ok": self.ok, "status": self.status,
-                "frames": self.frames_sent, "params": self.params}
+                "frames": self.frames_sent, "params": self.params, "paused": self.paused}
 
     # --- для нащадків
     def open(self) -> None:
@@ -130,6 +135,7 @@ class Output:
     def _run(self) -> None:
         period = 1.0 / self.refresh_hz
         last_send = 0.0
+        idle_since: float | None = None
         while not self._stop.is_set():
             if not self.ok:
                 try:
@@ -152,14 +158,26 @@ class Output:
             self._changed.clear()
             with self._lock:
                 frame = self._frame
+            now = time.monotonic()
+            if not any(frame) and frame == self._sent:
+                idle_since = idle_since or now
+                if now - idle_since >= self.idle_tail_s:
+                    self.paused = True
+                    self._changed.wait(0.5)   # нічого не шлемо, поки кадр не зміниться
+                    continue
+            else:
+                idle_since = None
+            self.paused = False
             try:
                 self.send(frame)
                 self.frames_sent += 1
+                self._sent = frame
                 last_send = time.monotonic()
             except Exception as exc:  # noqa: BLE001
                 self.status = f"Помилка: {exc}"
                 log.warning("Помилка відправки %s: %s", self.kind, exc)
                 self.ok = False
+                self._sent = None      # після перепідключення порожній кадр — знову кілька разів
                 try:
                     self.close()
                 except Exception:  # noqa: BLE001

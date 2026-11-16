@@ -17,7 +17,6 @@ ICON = Path(__file__).resolve().parent / "static" / "icon.ico"
 ICON_SVG = Path(__file__).resolve().parent / "static" / "icon.svg"
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
 BG = "#0f1115"                       # фон інтерфейсу (style.css: --bg) — без білого спалаху
-SERVER_WAIT_S = 90                   # скільки чекати на сервер програми під час запуску
 _WINDOW_GUARD = None                 # м'ютекс «вікно вже відкрите» (Windows)
 CLOSE_SIGNAL = "__SCDMX_CLOSE__"     # заголовок сторінки, яким інтерфейс просить закрити вікно
 LOG = Path(__file__).resolve().parent.parent / "sc-dmx-window.log"
@@ -43,15 +42,15 @@ def available() -> bool:
         return False
 
 
-def loading_html(text: str, error: bool = False) -> str:
+def loading_html(text: str) -> str:
     """Екран завантаження у стилі інтерфейсу (кольори й шрифт — як у style.css)."""
     import html
     try:
         logo = ICON_SVG.read_text("utf-8")
     except OSError:
         logo = ""
-    color = "#ff6b6b" if error else "#9aa1ae"
-    spinner = "" if error else '<div class="spin"></div>'
+    color = "#9aa1ae"
+    spinner = '<div class="spin"></div>'
     return f"""<!doctype html><html lang="uk"><meta charset="utf-8"><style>
 html,body{{margin:0;height:100%;background:{BG};color:#e6e8ee;
   font:14px/1.45 system-ui,"Segoe UI",Roboto,sans-serif;user-select:none;cursor:default}}
@@ -73,8 +72,6 @@ def run_window(url: str, should_close: Callable[[], bool] = lambda: False) -> in
                           "--disable-background-networking --disable-component-update")
     from PySide6.QtCore import QSettings, Qt, QTimer, QUrl
     from PySide6.QtGui import QDesktopServices, QIcon, QKeySequence, QShortcut
-    from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile
-    from PySide6.QtWebEngineWidgets import QWebEngineView
     from PySide6.QtWidgets import QApplication, QMainWindow
 
     from PySide6.QtGui import QColor
@@ -100,6 +97,21 @@ def run_window(url: str, should_close: Callable[[], bool] = lambda: False) -> in
     app.setOrganizationName("SC DMX")
     if ICON.exists():
         app.setWindowIcon(QIcon(str(ICON)))
+
+    # Вікно запуску — одразу, ще до завантаження вбудованого браузера (це кілька секунд).
+    # Воно ж перевіряє оновлення і не відкриває програму, доки доступне оновлення не встановлено.
+    from . import __version__, splash
+    gate = {"open": False}
+
+    def open_app():
+        gate["open"] = True
+        if "start" in gate:
+            gate["start"]()
+
+    splash_win = splash.run_splash(url, __version__, open_app, wlog)
+    app.processEvents()
+    from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile
+    from PySide6.QtWebEngineWidgets import QWebEngineView
 
     def is_external(qurl: QUrl) -> bool:
         return qurl.scheme() in ("http", "https") and qurl.host() not in LOCAL_HOSTS
@@ -133,7 +145,7 @@ def run_window(url: str, should_close: Callable[[], bool] = lambda: False) -> in
     # вікно показує екран завантаження у стилі програми, а не біле поле.
     win.setStyleSheet(f"QMainWindow, QWebEngineView {{ background: {BG}; }}")
     view.page().setBackgroundColor(QColor(BG))
-    view.setHtml(loading_html("Запуск…"))
+    view.setHtml(loading_html("Відкриття…"))
     win.setCentralWidget(view)
 
     retries = {"n": 0}
@@ -178,32 +190,19 @@ def run_window(url: str, should_close: Callable[[], bool] = lambda: False) -> in
     view.loadFinished.connect(on_load_finished)
     view.page().renderProcessTerminated.connect(on_render_gone)
 
-    def server_ready() -> bool:
-        import socket
-        parts = QUrl(url)
-        try:
-            with socket.create_connection((parts.host() or "127.0.0.1", parts.port(80)), timeout=0.3):
-                return True
-        except OSError:
-            return False
-
     boot = {"t0": time.monotonic(), "loaded": False}
 
-    def try_load():
+    def start():
+        """Вікно запуску пропустило далі: сервер працює, оновлень немає — відкриваємо програму."""
         if boot["loaded"]:
             return
-        if server_ready():
-            boot["loaded"] = True
-            wlog(f"Сервер відповідає через {time.monotonic() - boot['t0']:.1f} с, завантаження інтерфейсу")
-            view.load(QUrl(url))
-        elif time.monotonic() - boot["t0"] > SERVER_WAIT_S:
-            boot["loaded"] = True
-            wlog("Сервер не запустився")
-            view.setHtml(loading_html("Не вдалося запустити програму. Закрийте вікно й відкрийте SC DMX знову.", error=True))
-        else:
-            QTimer.singleShot(250, try_load)
+        boot["loaded"] = True
+        wlog(f"Відкриття інтерфейсу через {time.monotonic() - boot['t0']:.1f} с")
+        win.show()
+        wlog("Вікно показано")
+        QTimer.singleShot(300, repaint)
+        view.load(QUrl(url))
 
-    QTimer.singleShot(0, try_load)
 
     # Файли, які віддає програма (напр. сцена .scdmx), — через діалог «Зберегти як»
     def on_download(req):
@@ -289,10 +288,11 @@ def run_window(url: str, should_close: Callable[[], bool] = lambda: False) -> in
     timer.timeout.connect(lambda: should_close() and force_close())
     timer.start(500)
 
-    win.show()
-    wlog("Вікно показано")
-    QTimer.singleShot(300, repaint)
+    gate["start"] = start
+    if gate["open"]:
+        start()
     code = app.exec()
+    del splash_win
     wlog(f"Вікно закрито, код {code}")
     return code
 

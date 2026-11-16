@@ -666,3 +666,28 @@ def test_update_zip_slip_rejected(tmp_path):
     with pytest.raises(RuntimeError, match="небезпечний шлях"):
         install_from_zip(z, app)
     assert (app / "dmxctl" / "__init__.py").read_text() == "old"
+
+
+def test_output_pauses_on_empty_frame():
+    """Немає приладів або все вимкнено: кілька порожніх кадрів, далі відправка стоїть до зміни."""
+    import time as _t
+
+    from dmxctl.outputs import NullOutput
+    out = NullOutput()
+    out.refresh_hz, out.idle_tail_s = 200.0, 0.1
+    out.start()
+    try:
+        _t.sleep(0.4)
+        assert out.paused and out.info()["paused"]
+        n = out.frames_sent
+        assert n > 0                                   # порожній кадр усе ж пішов, щоб прилади згасли
+        _t.sleep(0.2)
+        assert out.frames_sent == n                    # далі — тиша
+        out.set_frame(bytes([255]) + bytes(511))
+        _t.sleep(0.1)
+        assert not out.paused and out.frames_sent > n  # світло ввімкнули — кадри знову йдуть
+        n = out.frames_sent
+        _t.sleep(0.1)
+        assert out.frames_sent > n                     # непорожній кадр шлеться безперервно
+    finally:
+        out.stop()

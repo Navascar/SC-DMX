@@ -55,6 +55,41 @@ jobs:
           .\.venv\Scripts\python.exe -c "from dmxctl import winshell as w; [print(d/'SC DMX.lnk', w._read_id(d/'SC DMX.lnk')) for d in w._shortcut_dirs()]"
           Pop-Location
 
+      - name: Вікно запуску не відкриває програму, поки є оновлення
+        shell: pwsh
+        run: |
+          # підставна «нова версія»: програма має показати вікно оновлення, а не інтерфейс
+          New-Item -ItemType Directory -Force fakeapi | Out-Null
+          @{ tag_name = 'v99.0.0'; body = "- Перевірка вікна запуску`n- Друга зміна"; html_url = 'https://example.invalid/'
+             assets = @(@{ name = 'SC-DMX.zip'; browser_download_url = 'http://127.0.0.1:8790/none.zip' }) } |
+            ConvertTo-Json -Depth 5 | Set-Content fakeapi\release.json -Encoding utf8NoBOM
+          $api = Start-Process python -ArgumentList '-m', 'http.server', '8790', '--directory', "$pwd\fakeapi" -PassThru -WindowStyle Hidden
+          $env:SC_DMX_UPDATE_API = 'http://127.0.0.1:8790/release.json'
+          $app = Join-Path $env:LOCALAPPDATA 'SC-DMX'
+          Remove-Item (Join-Path $app 'sc-dmx-window.log') -ErrorAction SilentlyContinue
+          Start-Process (Join-Path ([Environment]::GetFolderPath('Programs')) 'SC DMX.lnk')
+          Start-Sleep -Seconds 20
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+          [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+          New-Item -ItemType Directory -Force shots | Out-Null
+          $bmp.Save("$pwd\shots\3a-splash-update.png")
+          $h = @{ 'X-SCDMX-Splash' = '1' }
+          $upd = Invoke-RestMethod 'http://127.0.0.1:8080/api/update' -Headers $h
+          "Оновлення: available=$($upd.available) latest=$($upd.latest) checked=$($upd.checked)"
+          $log = Get-Content (Join-Path $app 'sc-dmx-window.log') -Encoding UTF8 -ErrorAction SilentlyContinue
+          $log | Select-String 'Вікно запуску|Відкриття інтерфейсу'
+          $opened = [bool]($log | Select-String 'Відкриття інтерфейсу')
+          # закриваємо, як кнопка «Закрити» у вікні оновлення
+          Invoke-RestMethod 'http://127.0.0.1:8080/api/quit' -Method Post -Headers $h | Out-Null
+          Start-Sleep -Seconds 6
+          Stop-Process -Id $api.Id -Force
+          $left = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'dmxctl|sc-dmx\.pyw' }
+          "Процесів SC DMX після закриття: $(@($left).Count)"
+          foreach ($p in $left) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
+          if (-not $upd.available -or $opened) { 'Програма відкрилася попри оновлення'; exit 1 }
+
       - name: Запуск програми, знімок екрана, панель задач
         shell: pwsh
         run: |

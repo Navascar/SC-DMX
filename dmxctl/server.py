@@ -198,7 +198,7 @@ async def live_feed(app: web.Application) -> None:
         if not app[SOCKETS]:
             continue
         info = engine.output.info()
-        out_key = (info["ok"], info["status"])
+        out_key = (info["ok"], info["status"], info.get("paused"))
         payload = {"type": "live", "live": engine.live, "dmx": list(engine.universe),
                    "frames": info["frames"]}
         if out_key != last_output:
@@ -217,17 +217,18 @@ async def check_updates(app: web.Application) -> None:
     if upd["status"] in ("checking", "installing", "restarting"):
         return
     await set_update(app, status="checking", error="")
+    # checked — перевірка завершилась (будь-як): вікно запуску чекає саме на це
     try:
         info = await asyncio.get_running_loop().run_in_executor(None, updater.check)
-        await set_update(app, status="idle", blocked=updater.can_self_update(), **info)
+        await set_update(app, status="idle", checked=True, blocked=updater.can_self_update(), **info)
     except (OSError, TimeoutError) as exc:  # URLError — підклас OSError: немає інтернету
         log.info("Немає підключення до інтернету — перевірку оновлень відкладено (%s)", exc)
-        await set_update(app, status="idle", offline=True,
+        await set_update(app, status="idle", checked=True, offline=True,
                          error="Немає підключення до інтернету")
         return
     except Exception as exc:  # noqa: BLE001
         log.warning("Не вдалося перевірити оновлення: %s", exc)
-        await set_update(app, status="idle", error=f"Не вдалося перевірити оновлення: {exc}")
+        await set_update(app, status="idle", checked=True, error=f"Не вдалося перевірити оновлення: {exc}")
         return
     app[UPDATE]["offline"] = False
 
@@ -255,8 +256,7 @@ async def apply_update(app: web.Application) -> None:
 
 
 async def update_loop(app: web.Application) -> None:
-    await asyncio.sleep(3)
-    while True:
+    while True:   # перша перевірка — одразу: вікно запуску не відкриває програму, поки її не буде
         await check_updates(app)
         # без інтернету пробуємо частіше, щоб оновлення знайшлося, щойно зʼявиться мережа
         await asyncio.sleep(OFFLINE_RETRY_S if app[UPDATE].get("offline") else UPDATE_CHECK_INTERVAL)
@@ -281,6 +281,37 @@ async def on_cleanup(app: web.Application) -> None:
     # під час перезапуску після оновлення світло не гасимо
     blackout = app[EXIT]["code"] != updater.RESTART_CODE
     await asyncio.get_running_loop().run_in_executor(None, app[ENGINE].shutdown, blackout)
+
+
+# ------------------------------------------------------ вікно запуску ---
+# Вікно запуску (dmxctl/splash.py) питає стан оновлення й запускає його, поки інтерфейсу ще немає.
+# Лише з цього комп'ютера і з заголовком X-SCDMX-Splash: звичайна сторінка в браузері не може
+# надіслати такий заголовок на чужу адресу (CORS), тож сторонній сайт ці запити не зробить.
+SPLASH_HEADER = "X-SCDMX-Splash"
+
+
+def _splash_request(request: web.Request) -> None:
+    if not _is_local(request) or request.headers.get(SPLASH_HEADER) != "1":
+        raise web.HTTPForbidden(text="Forbidden")
+
+
+async def update_api(request: web.Request) -> web.Response:
+    """GET — стан оновлення; POST — встановити доступне оновлення."""
+    _splash_request(request)
+    app = request.app
+    if request.method == "POST":
+        upd = app[UPDATE]
+        if upd.get("available") and upd["status"] == "idle":
+            upd["error"] = ""   # стара помилка не має виглядати як помилка нового встановлення
+            asyncio.create_task(apply_update(app))
+    return web.json_response(app[UPDATE])
+
+
+async def quit_api(request: web.Request) -> web.Response:
+    """Вікно запуску закрили до відкриття програми — вимикаємо й сервер."""
+    _splash_request(request)
+    request_stop(request.app, 0)
+    return web.json_response({"ok": True})
 
 
 # ------------------------------------------------- бібліотека приладів ---
@@ -366,7 +397,7 @@ async def guard(request: web.Request, handler):
     if not host_allowed(request.headers.get("Host", ""), request.app[OWN_NAMES]):
         log.warning("Відхилено запит з чужим Host: %r", request.headers.get("Host"))
         raise web.HTTPForbidden(text="Forbidden host")
-    if request.path == "/ws" and not origin_allowed(request.headers.get("Origin"), request.headers.get("Host", "")):
+    if request.path in ("/ws", "/api/update", "/api/quit") and not origin_allowed(request.headers.get("Origin"), request.headers.get("Host", "")):
         log.warning("Відхилено WebSocket з чужої сторінки: %r", request.headers.get("Origin"))
         raise web.HTTPForbidden(text="Forbidden origin")
     return await handler(request)
@@ -382,11 +413,14 @@ def make_app(config_path: str, background: bool = False) -> web.Application:
     app[EXIT] = {"code": 0}
     app[UPDATE] = {"current": __version__, "latest": "", "available": False, "status": "idle",
                    "error": "", "progress": "", "notes": "", "page": "", "url": "",
-                   "blocked": updater.can_self_update(), "repo": updater.GITHUB_REPO}
+                   "blocked": updater.can_self_update(), "repo": updater.GITHUB_REPO, "checked": False}
     app.router.add_get("/", index)
     app.router.add_get("/ws", ws_handler)
     app.router.add_get("/api/library", library_api)
     app.router.add_get("/api/scene", scene_file)
+    app.router.add_get("/api/update", update_api)
+    app.router.add_post("/api/update", update_api)
+    app.router.add_post("/api/quit", quit_api)
     app.router.add_static("/static", STATIC)
     app.on_response_prepare.append(_no_cache)
     app.on_startup.append(on_startup)
