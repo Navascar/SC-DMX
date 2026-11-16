@@ -169,6 +169,11 @@ def run_splash(url: str, version: str, on_open: Callable[[], None], log=lambda t
     body.addWidget(error)
     box.addLayout(body)
 
+    # Список змін і текст помилки приходять ззовні (GitHub, виняток) — показуємо лише як текст,
+    # без HTML: QLabel інакше сам вгадує формат і відобразив би теги.
+    for label in (name, ver, heading, status, notes, error):
+        label.setTextFormat(Qt.TextFormat.PlainText)
+
     footer = QFrame(objectName="footer")
     foot = QHBoxLayout(footer)
     foot.setContentsMargins(24, 14, 24, 14)

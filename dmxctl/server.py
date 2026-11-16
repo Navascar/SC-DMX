@@ -398,7 +398,7 @@ async def guard(request: web.Request, handler):
         log.warning("Відхилено запит з чужим Host: %r", request.headers.get("Host"))
         raise web.HTTPForbidden(text="Forbidden host")
     if request.path in ("/ws", "/api/update", "/api/quit") and not origin_allowed(request.headers.get("Origin"), request.headers.get("Host", "")):
-        log.warning("Відхилено WebSocket з чужої сторінки: %r", request.headers.get("Origin"))
+        log.warning("Відхилено запит %s з чужої сторінки: %r", request.path, request.headers.get("Origin"))
         raise web.HTTPForbidden(text="Forbidden origin")
     return await handler(request)
 
