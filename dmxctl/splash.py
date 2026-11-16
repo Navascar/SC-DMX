@@ -28,6 +28,7 @@ SPLASH_HEADER = "X-SCDMX-Splash"
 # Кольори — з дизайн-системи інтерфейсу (style.css)
 BG, SURFACE, RAISED, LINE, LINE_STRONG = "#0f1115", "#171a21", "#1f232c", "#2b303b", "#3d4452"
 TEXT, MUTED, ACCENT, DANGER = "#e6e8ee", "#9aa1ae", "#4f8cff", "#ef5b60"
+ACCENT_STRONG = "#3570d9"   # заливка під білим текстом (контраст 4.7:1)
 
 
 def decide(upd: dict | None, waited_s: float, requested: bool) -> str:
@@ -112,8 +113,8 @@ def run_splash(url: str, version: str, on_open: Callable[[], None], log=lambda t
                        background: {RAISED}; border: 1px solid {LINE}; color: {TEXT}; }}
         QPushButton:hover {{ border-color: {LINE_STRONG}; }}
         QPushButton:focus {{ border-color: {ACCENT}; outline: none; }}
-        QPushButton#primary {{ background: {ACCENT}; border-color: {ACCENT}; color: white; }}
-        QPushButton#primary:hover {{ background: #3f7cf0; }}
+        QPushButton#primary {{ background: {ACCENT_STRONG}; border-color: {ACCENT_STRONG}; color: white; }}
+        QPushButton#primary:hover {{ background: #2f63c4; }}
         QProgressBar {{ background: {LINE}; border: none; border-radius: 3px; max-height: 6px; min-height: 6px; }}
         QProgressBar::chunk {{ background: {ACCENT}; border-radius: 3px; }}
     """)
@@ -189,7 +190,7 @@ def run_splash(url: str, version: str, on_open: Callable[[], None], log=lambda t
 
     win.setFixedWidth(560)
     state = {"phase": "", "requested": False, "since": None, "t0": time.monotonic(), "closing": False,
-             "restarted": False, "drag": None}
+             "restarted": False, "drag": None, "was_up": False}
 
     def show_phase(phase: str, upd: dict | None):
         if phase == state["phase"] and phase != "installing":
@@ -254,11 +255,13 @@ def run_splash(url: str, version: str, on_open: Callable[[], None], log=lambda t
             state["since"] = None
             if state["requested"]:
                 state["restarted"] = True     # сервер перезапускається вже з новою версією
-            if not state["requested"] and now - state["t0"] > SERVER_WAIT_S:
+            # сервер так і не запустився, або працював і зник не через оновлення (збій)
+            if not state["requested"] and (state["was_up"] or now - state["t0"] > SERVER_WAIT_S):
                 timer.stop()
                 show_phase("server_error", None)
                 return
         else:
+            state["was_up"] = True
             if state["since"] is None:
                 state["since"] = now
             if state["restarted"] and upd.get("status") == "idle":
@@ -281,11 +284,19 @@ def run_splash(url: str, version: str, on_open: Callable[[], None], log=lambda t
             show_phase("installing", {"progress": "Підготовка…"})
 
     def on_close():
+        win.close()
+
+    def close_event(event):
+        """Закриття вікна запуску — кнопкою «Закрити», Alt+F4 чи з панелі задач."""
+        event.accept()
+        if state["closing"]:
+            return   # програму вже відкрито (або вікно закривається вдруге)
         state["closing"] = True
         timer.stop()
         api.call("/api/quit", post=True)   # програму так і не відкрили — сервер теж вимикаємо
-        win.close()
         QApplication.instance().quit()
+
+    win.closeEvent = close_event
 
     main_btn.clicked.connect(on_main)
     close_btn.clicked.connect(on_close)

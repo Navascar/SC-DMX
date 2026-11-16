@@ -77,3 +77,12 @@ def test_cli(tmp_path, capsys):
     assert capsys.readouterr().out.strip() == "kept"
     assert userdata.main(["--config", str(p), "fixtures", "profiles", "settings"]) == 0
     assert capsys.readouterr().out.strip() == "removed"
+
+
+def test_own_profiles_in_use_stay(tmp_path):
+    """«Власні профілі» без «Приладів»: профіль, на якому працює прилад, лишається."""
+    cfg = {**CFG, "fixtures": CFG["fixtures"] + [{"id": "f2", "name": "PAR", "address": 9, "profile": "Мій RGB"}],
+           "profiles": {**CFG["profiles"], "Зайвий": ["r"]}}
+    p = _write(tmp_path, cfg)
+    userdata.apply(p, {"profiles"})
+    assert set(json.loads(p.read_text("utf-8"))["profiles"]) == {"Мій RGB", "Модель X 4ch"}

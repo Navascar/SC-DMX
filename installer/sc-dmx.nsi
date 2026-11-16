@@ -136,8 +136,11 @@ FunctionEnd
 
 Section "Uninstall"
   ; програма має бути закрита, інакше файли зайняті
-  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -Command "try { if ((Invoke-WebRequest http://127.0.0.1:8080/ -UseBasicParsing -TimeoutSec 2).Content -match $\'<title>SC DMX</title>$\') { exit 1 } } catch { }; exit 0"'
+  ; процеси Python з dmxctl / sc-dmx.pyw (порт не годиться: SC DMX може працювати на 8081+);
+  ; сам PowerShell теж містить «dmxctl» у рядку команди, тому дивимося лише на python*.exe
+  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -Command "try { if (Get-CimInstance Win32_Process | Where-Object { $$_.Name -like $\'python*$\' -and $$_.CommandLine -match $\'dmxctl|sc-dmx\.pyw$\' }) { exit 1 } } catch { }; exit 0"'
   Pop $0
+  Pop $1   ; вивід команди — не потрібен
   ${If} $0 == 1
     MessageBox MB_ICONEXCLAMATION "SC DMX зараз відкрито. Закрийте вікно програми й запустіть видалення ще раз." /SD IDOK
     Abort

@@ -20,6 +20,9 @@ param([switch]$NoLaunch, [switch]$Progress, [switch]$NoDesktop, [switch]$NoStart
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+# Python пише в канал у системному кодуванні (cp1251), а ми читаємо UTF-8 — шлях до Python з кириличним
+# іменем користувача (C:\Users\Дмитро\...) псувався, і Python «не знаходився». Просимо Python писати UTF-8.
+$env:PYTHONIOENCODING = 'utf-8'
 $Repo = 'Navascar/SC-DMX'
 $AppDir = Join-Path $env:LOCALAPPDATA 'SC-DMX'
 
@@ -68,7 +71,10 @@ if (-not $Python) {
         $env:Path = [Environment]::GetEnvironmentVariable('Path', 'User') + ';' + [Environment]::GetEnvironmentVariable('Path', 'Machine')
         $Python = Find-Python
         if (-not $Python) {
-            $cand = Get-ChildItem "$env:LOCALAPPDATA\Programs\Python\Python3*\python.exe" -ErrorAction SilentlyContinue | Select-Object -Last 1
+            # найновіший Python 3.10+: Python313 > Python39 — порівнюємо як числа, а не як текст
+            $cand = Get-ChildItem "$env:LOCALAPPDATA\Programs\Python\Python3*\python.exe" -ErrorAction SilentlyContinue |
+                Where-Object { [int]($_.Directory.Name -replace '\D', '') -ge 310 } |
+                Sort-Object { [int]($_.Directory.Name -replace '\D', '') } -Descending | Select-Object -First 1
             if ($cand) { $Python = $cand.FullName }
         }
     }
@@ -103,9 +109,13 @@ if ($PSScriptRoot -and (Test-Path (Join-Path $PSScriptRoot 'dmxctl\__init__.py')
 }
 
 # Якщо програма запущена — її треба закрити, щоб оновити файли
+# Запущена SC DMX — її процеси (python/pythonw з dmxctl або sc-dmx.pyw). Порт не годиться: якщо 8080
+# зайнятий іншим застосунком, SC DMX працює на 8081…8099.
 $running = $false
-# інший застосунок на порту 8080 — не SC DMX: він встановленню не заважає
-try { $running = (Invoke-WebRequest 'http://127.0.0.1:8080/' -UseBasicParsing -TimeoutSec 2).Content -match '<title>SC DMX</title>' } catch { }
+try {
+    $running = [bool](Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" -ErrorAction Stop |
+        Where-Object { $_.CommandLine -match 'dmxctl|sc-dmx\.pyw' })
+} catch { }
 if ($running) {
     if ($Progress) { Fail 'SC DMX зараз відкрито. Закрийте вікно програми й спробуйте ще раз.' }
     Write-Host 'SC DMX зараз відкрито. Закрийте вікно програми й натисніть Enter.' -ForegroundColor Yellow
@@ -147,6 +157,9 @@ if ($code -ne 0) { Fail 'Не вдалося встановити компоне
 $LinkDirs = @()
 if (-not $NoDesktop) { $LinkDirs += [Environment]::GetFolderPath('Desktop') }
 if (-not $NoStartMenu) { $LinkDirs += [Environment]::GetFolderPath('Programs') }
+# ярлик, який цього разу не вибрали, прибираємо (лишився від попереднього встановлення)
+if ($NoDesktop) { Remove-Item (Join-Path ([Environment]::GetFolderPath('Desktop')) 'SC DMX.lnk') -ErrorAction SilentlyContinue }
+if ($NoStartMenu) { Remove-Item (Join-Path ([Environment]::GetFolderPath('Programs')) 'SC DMX.lnk') -ErrorAction SilentlyContinue }
 if ($LinkDirs.Count) {
     Step 'shortcuts' 'Створення ярликів'
     $linkArgs = @('-m', 'dmxctl.winshell', 'install')

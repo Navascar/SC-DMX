@@ -739,3 +739,38 @@ def test_scene_file_item_without_id_is_skipped(tmp_path):
              {"id": "f1", "address": 1, "channels": ["r", "g", "b"], "state": {"r": 9}}]
     eng.handle({"cmd": "import_scene", "data": _scene_file(None, items)})
     assert "X" in eng.scenes
+
+
+@pytest.mark.parametrize("text", ["{not json", "[1, 2]", '{"fixtures": 5}', '{"master": "max"}'])
+def test_corrupt_config_does_not_block_start(tmp_path, text):
+    """Зіпсований config.json відкладається вбік, програма стартує з чистими налаштуваннями."""
+    p = tmp_path / "config.json"
+    p.write_text(text, "utf-8")
+    eng = Engine(p)
+    assert eng.fixtures == [] and eng.master == 255
+    assert eng.state()["load_warning"]
+    assert [f.name.startswith("config.broken-") for f in tmp_path.iterdir()] == [True]
+
+
+def test_undo_keeps_discrete_actions_separate(tmp_path):
+    eng = Engine(tmp_path / "cfg.json")
+    eng.handle({"cmd": "add_fixture", "profile": "RGB (3 кан.)", "address": 1})
+    eng.handle({"cmd": "add_fixture", "profile": "RGB (3 кан.)", "address": 10})
+    eng.handle({"cmd": "undo"})
+    assert len(eng.fixtures) == 1
+
+
+def test_bad_values_give_clear_errors(tmp_path):
+    eng = Engine(tmp_path / "cfg.json")
+    for msg in ({"cmd": "static_color", "index": 999, "ids": []}, {"cmd": "set_master", "value": 1e400},
+                {"cmd": "set_color", "ids": [], "hex": 5}, {"cmd": "save_profile", "name": "X", "channels": "rgb"},
+                {"cmd": "strobe", "on": "false"}):
+        with pytest.raises(ValueError):
+            eng.handle(msg)
+
+
+@pytest.mark.parametrize("universe", [32768, 40000, -1])
+def test_artnet_rejects_universe_out_of_range(universe):
+    from dmxctl.outputs import ArtNetOutput
+    with pytest.raises(ValueError, match="0..32767"):
+        ArtNetOutput(host="127.0.0.1", universe=universe).open()

@@ -245,6 +245,10 @@ class ArtNetOutput(Output):
     keepalive_s = 1.0
 
     def open(self) -> None:
+        universe = int(self.params.get("universe", 0))
+        if not 0 <= universe <= 32767:   # Port-Address Art-Net — 15 біт; більше значення пішло б у чужий всесвіт
+            raise ValueError("всесвіт Art-Net має бути 0..32767")
+        self.universe = universe
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         self.addr = (self.params.get("host") or "255.255.255.255", int(self.params.get("port", 6454)))
@@ -258,7 +262,7 @@ class ArtNetOutput(Output):
 
     def send(self, frame: bytes) -> None:
         self.seq = self.seq % 255 + 1  # 0 вимикає перевірку послідовності, тому 1..255
-        self.sock.sendto(artnet_packet(frame, int(self.params.get("universe", 0)), self.seq), self.addr)
+        self.sock.sendto(artnet_packet(frame, self.universe, self.seq), self.addr)
 
 
 class SacnOutput(Output):

@@ -18,6 +18,8 @@ EFFECTS = {
 
 
 def hex_to_rgb(h: str) -> tuple[int, int, int]:
+    if not isinstance(h, str):
+        raise ValueError(f"некоректний колір {h!r}")
     h = h.lstrip("#")
     if len(h) != 6:
         raise ValueError(f"некоректний колір {h!r}")

@@ -68,13 +68,14 @@ $ScDmxResources = @'
         </Setter.Value>
       </Setter>
     </Style>
+    <!-- заливка під білим текстом — --accent-strong (контраст 4.7:1), як у програмі -->
     <Style x:Key="Primary" TargetType="Button" BasedOn="{StaticResource Btn}">
-      <Setter Property="Background" Value="{StaticResource Accent}"/>
-      <Setter Property="BorderBrush" Value="{StaticResource Accent}"/>
+      <Setter Property="Background" Value="#3570D9"/>
+      <Setter Property="BorderBrush" Value="#3570D9"/>
       <Setter Property="Foreground" Value="White"/>
       <Style.Triggers>
         <Trigger Property="IsMouseOver" Value="True">
-          <Setter Property="Background" Value="#3F7CF0"/>
+          <Setter Property="Background" Value="#2F63C4"/>
         </Trigger>
       </Style.Triggers>
     </Style>

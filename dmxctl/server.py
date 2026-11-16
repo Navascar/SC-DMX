@@ -55,54 +55,69 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
     app[WATCH]["last_close"] = None
     await ws.send_json({"type": "state", "state": engine.state()})
     await ws.send_json({"type": "update", "update": app[UPDATE]})
-    async for msg in ws:
-        if msg.type != WSMsgType.TEXT:
-            continue
-        try:
-            data = json.loads(msg.data)
-            if data.get("cmd") == "find_udmx":
-                await ws.send_json({"type": "udmx", "devices": _udmx_list()})
+    try:
+        async for msg in ws:
+            if msg.type != WSMsgType.TEXT:
                 continue
-            if data.get("cmd") == "check_update":
-                asyncio.create_task(check_updates(app))
-                continue
-            if data.get("cmd") == "apply_update":
-                asyncio.create_task(apply_update(app))
-                continue
-            if data.get("cmd") == "open_url":
-                # посилання відкриваються браузером користувача за замовчуванням —
-                # лише з вікна на цьому ж комп'ютері; іншим пристроям — повертаємо назад
-                url = str(data.get("url", ""))
-                if _is_local(request):
-                    if not await asyncio.get_running_loop().run_in_executor(None, open_external, url):
-                        await ws.send_json({"type": "error", "message": "Не вдалося відкрити посилання"})
+            try:
+                data = json.loads(msg.data)
+                if not isinstance(data, dict):
+                    raise ValueError("команда має бути об'єктом JSON")
+                if not await _special_command(request, ws, data):
+                    engine.handle(data)
+                    note = engine.pop_notice()
+                    if note:
+                        await ws.send_json({"type": "notice", "message": note})
                 else:
-                    await ws.send_json({"type": "open_here", "url": url})
+                    continue
+            except (ValueError, KeyError, TypeError) as exc:
+                await ws.send_json({"type": "error", "message": str(exc).strip("'\"")})
                 continue
-            if data.get("cmd") == "quit":
-                await broadcast(app, {"type": "bye"})
-                request_stop(app, 0)
+            except Exception:  # noqa: BLE001 — одна зіпсована команда не має рвати зʼєднання
+                log.exception("Помилка команди %r", msg.data[:200])
+                await ws.send_json({"type": "error", "message": "Не вдалося виконати дію"})
                 continue
-            if data.get("cmd") == "list_ports":
-                await ws.send_json({"type": "ports", "ports": list_serial_ports()})
-                continue
-            engine.handle(data)
-            note = engine.pop_notice()
-            if note:
-                await ws.send_json({"type": "notice", "message": note})
-        except (ValueError, KeyError, TypeError) as exc:
-            await ws.send_json({"type": "error", "message": str(exc).strip("'\"")})
-            continue
-        # слайдери шлють багато дрібних команд — повний стан для них не потрібен
-        if data.get("cmd") in ("set_color", "set_master"):
-            await broadcast(app, {"type": "patch", "fixtures": [f.to_dict() for f in engine.fixtures],
-                                  "master": engine.master})
-        else:
-            await broadcast(app, {"type": "state", "state": engine.state()})
-    app[SOCKETS].discard(ws)
-    if not _open_sockets(app):
-        app[WATCH]["last_close"] = asyncio.get_running_loop().time()
+            # слайдери шлють багато дрібних команд — повний стан для них не потрібен
+            if data.get("cmd") in ("set_color", "set_master"):
+                await broadcast(app, {"type": "patch", "fixtures": [f.to_dict() for f in engine.fixtures],
+                                      "master": engine.master})
+            else:
+                await broadcast(app, {"type": "state", "state": engine.state()})
+    finally:
+        # навіть якщо зʼєднання обірвалось аварійно — інакше програма не вимкнулась би після закриття вікна
+        app[SOCKETS].discard(ws)
+        if not _open_sockets(app):
+            app[WATCH]["last_close"] = asyncio.get_running_loop().time()
     return ws
+
+
+async def _special_command(request: web.Request, ws: web.WebSocketResponse, data: dict) -> bool:
+    """Команди сервера (не рушія). True — команду виконано тут."""
+    app = request.app
+    cmd = data.get("cmd")
+    if cmd == "find_udmx":
+        await ws.send_json({"type": "udmx", "devices": _udmx_list()})
+    elif cmd == "check_update":
+        asyncio.create_task(check_updates(app))
+    elif cmd == "apply_update":
+        asyncio.create_task(apply_update(app))
+    elif cmd == "open_url":
+        # посилання відкриваються браузером користувача за замовчуванням —
+        # лише з вікна на цьому ж комп'ютері; іншим пристроям — повертаємо назад
+        url = str(data.get("url", ""))
+        if _is_local(request):
+            if not await asyncio.get_running_loop().run_in_executor(None, open_external, url):
+                await ws.send_json({"type": "error", "message": "Не вдалося відкрити посилання"})
+        else:
+            await ws.send_json({"type": "open_here", "url": url})
+    elif cmd == "quit":
+        await broadcast(app, {"type": "bye"})
+        request_stop(app, 0)
+    elif cmd == "list_ports":
+        await ws.send_json({"type": "ports", "ports": list_serial_ports()})
+    else:
+        return False
+    return True
 
 
 def _is_local(request: web.Request) -> bool:
@@ -221,17 +236,23 @@ async def check_updates(app: web.Application) -> None:
         return
     await set_update(app, status="checking", error="")
     # checked — перевірка завершилась (будь-як): вікно запуску чекає саме на це
+    def done() -> str:
+        # поки йшла перевірка, могло початися встановлення — його стан не перезаписуємо
+        return "idle" if upd["status"] == "checking" else upd["status"]
+
     try:
         info = await asyncio.get_running_loop().run_in_executor(None, updater.check)
-        await set_update(app, status="idle", checked=True, blocked=updater.can_self_update(), **info)
+        if upd["status"] in ("installing", "restarting"):
+            info.pop("url", None)   # уже встановлюється знайдена раніше версія
+        await set_update(app, status=done(), checked=True, blocked=updater.can_self_update(), **info)
     except (OSError, TimeoutError) as exc:  # URLError — підклас OSError: немає інтернету
         log.info("Немає підключення до інтернету — перевірку оновлень відкладено (%s)", exc)
-        await set_update(app, status="idle", checked=True, offline=True,
+        await set_update(app, status=done(), checked=True, offline=True,
                          error="Немає підключення до інтернету")
         return
     except Exception as exc:  # noqa: BLE001
         log.warning("Не вдалося перевірити оновлення: %s", exc)
-        await set_update(app, status="idle", checked=True, error=f"Не вдалося перевірити оновлення: {exc}")
+        await set_update(app, status=done(), checked=True, error=f"Не вдалося перевірити оновлення: {exc}")
         return
     app[UPDATE]["offline"] = False
 
@@ -305,7 +326,7 @@ async def update_api(request: web.Request) -> web.Response:
     app = request.app
     if request.method == "POST":
         upd = app[UPDATE]
-        if upd.get("available") and upd["status"] == "idle":
+        if upd.get("available") and upd["status"] in ("idle", "checking"):
             upd["error"] = ""   # стара помилка не має виглядати як помилка нового встановлення
             asyncio.create_task(apply_update(app))
     return web.json_response(app[UPDATE])
@@ -322,8 +343,11 @@ async def quit_api(request: web.Request) -> web.Response:
 async def library_api(request: web.Request) -> web.Response:
     q = request.query.get("q", "")
     kind = request.query.get("type", "")
-    offset = max(0, int(request.query.get("offset", 0) or 0))
-    limit = max(1, min(200, int(request.query.get("limit", 60) or 60)))
+    try:
+        offset = max(0, int(request.query.get("offset", 0) or 0))
+        limit = max(1, min(200, int(request.query.get("limit", 60) or 60)))
+    except ValueError:
+        raise web.HTTPBadRequest(text="offset і limit мають бути числами") from None
     recent = request.app[ENGINE].recent_models
     found = library.search(q, limit + 1, kind, offset, recent)
     resp = web.json_response({"total": len(library.models()), "counts": library.counts(q, recent),

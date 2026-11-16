@@ -143,12 +143,17 @@ function onMessage(m) {
     serverVersion = m.state.version;
     S = m.state;
     for (const id of [...selected]) if (!S.fixtures.some((f) => f.id === id)) selected.delete(id);
-    if (effColors === null) effColors = [...S.effect.colors];
+    // поки ефект працює, палітра — та, що на сервері (сцена чи інший пристрій могли її змінити);
+    // коли ефекту немає, палітра — чернетка користувача для наступного запуску
+    if (effColors === null || S.effect.type !== "none") effColors = [...S.effect.colors];
     renderAll();
     afterState();
   } else if (m.type === "patch" && S) {
+    // колір, вибраний поверх пресету, скидає пресет — тоді плитки треба перемалювати
+    const presetChanged = m.fixtures.some((f) => S.fixtures.find((o) => o.id === f.id)?.preset !== f.preset);
     S.fixtures = m.fixtures;
     S.master = m.master;
+    if (presetChanged) renderFixtures();
     syncSliders();
     syncMaster();
   } else if (m.type === "live") {
@@ -208,6 +213,7 @@ function hostLayer(node) {
 
 // ------------------------------------------------ власні вікна (замість браузерних) ---
 function uiDialog({ title = "SC DMX", text = "", input = null, ok = "OK", cancel = "Скасувати", danger = false }) {
+  stopCapture();   // відкрите підтвердження не має «ловити» клавіші для гарячих клавіш
   return new Promise((resolve) => {
     const dlg = $("#uiDlg");
     $("#uiTitle").textContent = title;
@@ -308,6 +314,16 @@ function renderFixtures() {
       el("div", { className: "fx-badge", textContent: f.preset ? programName(f.preset)
         : effIds.has(f.id) ? S.effects[S.effect.type] : "" }));
     tile.dataset.id = f.id;
+    // плитка — кнопка вибору: доступна з клавіатури (Tab, Enter / пробіл; Shift — додати до вибору)
+    tile.tabIndex = 0;
+    tile.setAttribute("role", "button");
+    tile.setAttribute("aria-pressed", String(selected.has(f.id)));
+    tile.setAttribute("aria-label", `${f.name}, DMX ${f.address}`);
+    tile.onkeydown = (e) => {
+      if (e.target !== tile || (e.key !== "Enter" && e.key !== " ")) return;
+      e.preventDefault();
+      pick(f.id, e.shiftKey);
+    };
     tile.onclick = (e) => pick(f.id, e.shiftKey);
     tile.ondblclick = (e) => {
       e.preventDefault();
@@ -348,6 +364,7 @@ function pick(id, multi) {
 function refreshSelection() {
   for (const tile of document.querySelectorAll(".fx")) {
     tile.classList.toggle("sel", selected.has(tile.dataset.id));
+    tile.setAttribute("aria-pressed", String(selected.has(tile.dataset.id)));
     const bar = tile.querySelector(".lamp.bar");
     if (bar) [...bar.children].forEach((c, k) => c.classList.toggle("sel", selected.has(`${tile.dataset.id}#${k}`)));
   }
@@ -415,10 +432,9 @@ function buildSliders() {
   }
 }
 
-function segCount(f) {
-  const ch = S.profiles[f.profile] || [];
-  return Math.max(1, ...["r", "g", "b", "w", "a", "uv"].map((c) => ch.filter((x) => x === c).length));
-}
+// кількість сегментів — як на сервері (fixtures.segment_count): найбільше повторів однієї колірної ролі
+const segmentsOf = (ch) => Math.max(1, ...["r", "g", "b", "w", "a", "uv"].map((c) => ch.filter((x) => x === c).length));
+const segCount = (f) => segmentsOf(S.profiles[f.profile] || []);
 
 // вибрані елементи: [{f, seg}] — seg = null для приладу цілком
 function selItems() {
@@ -672,7 +688,8 @@ function renderStatic() {
     el("span", { textContent: staticEditing ? "Готово" : "Редагувати" }));
   $("#staticReset").hidden = !staticEditing;
   grid.replaceChildren(...S.static_colors.map((c, index) => {
-    const b = el("button", { className: "static-btn" + (c.w ? " w" : ""), title: c.name, textContent: c.name });
+    const b = el("button", { className: "static-btn" + (c.w ? " w" : ""), title: c.name },
+      el("span", { className: "label" + ([...c.name].length > 10 ? " long" : ""), textContent: c.name }));
     b.dataset.index = index;
     b.style.background = c.hex;
     if (c.w) b.style.background = `linear-gradient(135deg, ${c.hex} 60%, #fff)`;
@@ -687,6 +704,16 @@ function renderStatic() {
     const del = el("span", { className: "del", title: "Видалити" }, icon("x"));
     del.onclick = (e) => { e.stopPropagation(); send({ cmd: "delete_static_color", index }); };
     b.append(del);
+    if (staticEditing) {
+      // у режимі редагування колір можна видалити й з клавіатури: Tab до кольору, потім Delete
+      b.setAttribute("aria-label", `${c.name}. Delete — видалити`);
+      b.onkeydown = (e) => {
+        if (e.key === "Delete" || e.key === "Backspace") {
+          e.preventDefault(); e.stopPropagation();
+          send({ cmd: "delete_static_color", index });
+        }
+      };
+    }
     return b;
   }));
 }
@@ -723,8 +750,9 @@ function renderEffects() {
   if (e.type !== "none") sel.value = e.type;
   // поки ефект не запущено, повзунки належать користувачу — не скидаємо їх оновленнями стану
   if (e.type !== "none" || !renderEffects.synced) {
-    $("#effSpeed").value = sliderFromSpeed(e.speed);
-    $("#effSpread").value = Math.round(e.spread * 100);
+    // повзунок, який зараз тягнуть, не перескакує назад від відповіді сервера
+    if (activeSlider !== "effSpeed") $("#effSpeed").value = sliderFromSpeed(e.speed);
+    if (activeSlider !== "effSpread") $("#effSpread").value = Math.round(e.spread * 100);
     $("#effBySeg").checked = e.by_segment !== false;
     renderEffects.synced = true;
   }
@@ -768,6 +796,8 @@ function bindEffects() {
   $("#effBySeg").addEventListener("change", liveEffectUpdate);
   for (const id of ["#effSpeed", "#effSpread"]) {
     $(id).addEventListener("input", () => { updateEffLabels(); liveEffectUpdate(); });
+    $(id).addEventListener("pointerdown", () => (activeSlider = id.slice(1)));
+    $(id).addEventListener("pointerup", () => (activeSlider = null));
   }
   $("#effAddColor").onclick = () => {
     const f = selItems()[0] && itemColor(selItems()[0]);
@@ -791,7 +821,7 @@ function renderScenes() {
   if (!names.length) return list.replaceChildren(el("li", { className: "info", textContent: "Збережених сцен немає" }));
   list.replaceChildren(...names.map((name) => {
     const li = el("li", {},
-      Object.assign(ibtn("play", name, { className: "btn" }), {
+      Object.assign(ibtn("play", name, { className: "btn", title: name }), {
         onclick: () => send({ cmd: "recall_scene", name, fade: +$("#sceneFade").value || 0 }) }),
       Object.assign(ibtn("download", "", { title: "Зберегти сцену у файл" }), { onclick: () => saveSceneFile(name) }),
       Object.assign(ibtn("trash", "", { title: "Видалити сцену" }), {
@@ -953,7 +983,7 @@ function updatePropInfo() {
   const ch = propChannels();
   const start = +$("#propAddress").value || 1;
   const end = start + ch.length - 1;
-  const n = Math.max(1, ...["r", "g", "b"].map((c) => ch.filter((x) => x === c).length));
+  const n = segmentsOf(ch);
   $("#propDimmerVal").textContent = Math.round((+$("#propDimmer").value / 255) * 100) + "%";
   $("#propInfo").textContent = `Адреси ${start}–${end} · ${ch.length} кан.${n > 1 ? ` · ${n} сегм.` : ""} · ${ch.join(" ")}`;
   const clash = S.fixtures.filter((o) => o.id !== f.id).filter((o) => {
@@ -1341,7 +1371,7 @@ function fixturesPanelMenu() {
 
 const UNDO_NAMES = {
   set_color: "зміну кольору", static_color: "статичний колір", clear: "очищення", preset: "пресет",
-  set_master: "майстер", blackout: "Blackout", set_effect: "зміну ефекту", add_fixture: "додавання приладу",
+  set_master: "зміну майстра", blackout: "Blackout", set_effect: "зміну ефекту", add_fixture: "додавання приладу",
   update_fixture: "зміну приладу", delete_fixture: "видалення приладу", move_fixture: "переміщення приладу",
   save_scene: "збереження сцени", recall_scene: "виклик сцени", delete_scene: "видалення сцени", import_scene: "відкриття сцени з файлу",
   save_profile: "збереження профілю", delete_profile: "видалення профілю", add_static_color: "новий колір",
@@ -1367,7 +1397,7 @@ function generalMenu() {
     { icon: "⌫", label: "Очистити всі кольори", action: () => send({ cmd: "clear", ids: [] }) },
     S.effect.type !== "none" && { icon: "■", label: "Зупинити всі ефекти", action: () => send({ cmd: "set_effect", type: "none" }) },
     { icon: "◐", label: S.blackout ? "Вимкнути Blackout" : "Blackout", key: shortKey("blackout"), action: () => send({ cmd: "blackout" }) },
-    (S.strobe_fixtures || []).length > 0 && { icon: "ϟ", label: S.strobe?.on ? "Вимкнути строб" : "Строб", key: shortKey("strobe"), action: toggleStrobe },
+    (S.strobe_fixtures || []).length > 0 && { icon: "⚡", label: S.strobe?.on ? "Вимкнути строб" : "Строб", key: shortKey("strobe"), action: toggleStrobe },
     { sep: true },
     u.available && !u.blocked && { icon: "⬆", label: `Оновити до ${u.latest}…`, action: openUpdateDialog },
     !(u.available && !u.blocked) && { icon: "⟳", label: "Перевірити оновлення", action: () => send({ cmd: "check_update" }) },
@@ -1664,7 +1694,7 @@ function openAdd() {
 
 function updateAddInfo() {
   const ch = addChannels();
-  const n = Math.max(1, ...["r", "g", "b"].map((c) => ch.filter((x) => x === c).length));
+  const n = segmentsOf(ch);
   const count = Math.max(1, +$("#addCount").value || 1);
   const start = +$("#addAddress").value || 1;
   const last = start + ch.length * count - 1;
@@ -1687,6 +1717,9 @@ function afterState() {
 
 function toggleOutFields() {
   const t = $("#outType").value;
+  // Art-Net адресує 0..32767 всесвітів, sACN — 1..63999
+  $("#outUniverse").min = t === "sacn" ? 1 : 0;
+  $("#outUniverse").max = t === "artnet" ? 32767 : 63999;
   for (const n of document.querySelectorAll("[data-for]")) n.hidden = !n.dataset.for.split(" ").includes(t);
 }
 
@@ -1725,7 +1758,8 @@ const KEY_NAMES = {
 function comboOf(e) {
   if (MODIFIER_KEYS.has(e.key) || !e.code) return null;
   // цифри на цифровому блоці — те саме, що й у верхньому ряду
-  const code = /^Numpad\d$/.test(e.code) ? "Digit" + e.code.slice(6) : e.code;
+  // з увімкненим NumLock — те саме, що верхній ряд; без NumLock це End, ↓ тощо, а не цифри
+  const code = /^Numpad\d$/.test(e.code) && /^\d$/.test(e.key) ? "Digit" + e.code.slice(6) : e.code;
   const parts = [];
   if (e.ctrlKey || e.metaKey) parts.push("Ctrl");
   if (e.shiftKey) parts.push("Shift");
@@ -1787,8 +1821,9 @@ function renderKeys() {
         : [el("span", { className: "none", textContent: "Не призначено" })]));
     const row = el("div", { className: "key-row" + (h.id in custom ? " changed" : "") },
       el("span", { className: "key-name", textContent: h.label }), caps);
-    const change = el("button", { className: "btn small", type: "button", textContent: "Змінити" });
-    change.onclick = () => (capturing?.id === h.id ? stopCapture() : startCapture(h.id, row, change));
+    row.dataset.id = h.id;
+    const change = el("button", { className: "btn small key-change", type: "button", textContent: "Змінити" });
+    change.onclick = () => (capturing?.id === h.id ? stopCapture() : startCapture(h.id));
     // стовпці однакові в усіх рядках: «Стандартна» · «Змінити» · «Прибрати» (порожнє місце, якщо не потрібно)
     let reset = el("span");
     if (h.id in custom) {
@@ -1808,11 +1843,15 @@ function renderKeys() {
   }));
 }
 
-function startCapture(id, row, btn) {
-  stopCapture();
+function startCapture(id) {
+  stopCapture();   // перемальовує список — тож рядок і кнопку шукаємо вже в новому
+  const row = $("#keyList").querySelector(`.key-row[data-id="${id}"]`);
+  if (!row) return;
   capturing = { id, row };
   row.classList.add("capture");
+  const btn = row.querySelector(".key-change");
   btn.textContent = "Скасувати";
+  btn.focus();
 }
 function stopCapture() {
   if (!capturing) return;
@@ -1821,6 +1860,14 @@ function stopCapture() {
 }
 function onCaptureKey(e) {
   if (!capturing) return;
+  // вибір клавіші діє лише поки видно саму вкладку «Гарячі клавіші» й поверх неї немає іншого вікна;
+  // інакше (інша вкладка, підтвердження, поле вводу) він скасовується, а клавіша робить своє
+  const t = e.target instanceof Element ? e.target : null;
+  if (!capturing.row.isConnected || !$("#settings").open || !$("#tabKeys").classList.contains("active")
+      || $("#uiDlg").open || (t && t.matches("input, textarea, select, [contenteditable]"))) {
+    stopCapture();
+    return;
+  }
   e.preventDefault();
   e.stopPropagation();
   if (e.key === "Escape" && !e.ctrlKey && !e.shiftKey && !e.altKey) {
@@ -1863,6 +1910,7 @@ function saveKeys(map) {
 }
 
 function showTab(id) {
+  stopCapture();
   document.querySelectorAll(".tabs button, .tab").forEach((x) => x.classList.remove("active"));
   document.querySelector(`.tabs button[data-tab=${id}]`)?.classList.add("active");
   $("#" + id)?.classList.add("active");
@@ -2052,9 +2100,18 @@ function init() {
   $("#selAll").onclick = () => { selected.clear(); S.fixtures.forEach((f) => selected.add(f.id)); renderFixtures(); syncSliders(); };
   $("#selNone").onclick = () => { selected.clear(); renderFixtures(); syncSliders(); };
   $("#selInvert").onclick = () => {
-    const had = new Set(selItems().filter((i) => i.seg === null).map((i) => i.f.id));
+    // вибраний прилад → знімається; вибрані сегменти → вибираються решта сегментів того ж приладу;
+    // невибраний прилад → вибирається повністю
+    const items = selItems();
+    const whole = new Set(items.filter((i) => i.seg === null).map((i) => i.f.id));
+    const segs = new Set(items.filter((i) => i.seg !== null).map((i) => `${i.f.id}#${i.seg}`));
     selected.clear();
-    S.fixtures.forEach((f) => had.has(f.id) || selected.add(f.id));
+    for (const f of S.fixtures) {
+      if (whole.has(f.id)) continue;
+      const mine = [...Array(segCount(f)).keys()].map((k) => `${f.id}#${k}`);
+      if (mine.some((id) => segs.has(id))) mine.forEach((id) => segs.has(id) || selected.add(id));
+      else selected.add(f.id);
+    }
     renderFixtures(); syncSliders();
   };
   $("#strobe").onclick = toggleStrobe;

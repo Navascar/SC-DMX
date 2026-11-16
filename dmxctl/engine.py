@@ -23,6 +23,7 @@ log = logging.getLogger(__name__)
 FPS = 40
 UNDO_LIMIT = 100
 UNDO_MERGE_S = 1.0   # серія однакових команд (рух повзунка) — один крок скасування
+MERGEABLE = {"set_color", "set_master", "set_effect", "preset"}   # команди повзунків
 NO_UNDO = {"undo", "redo", "raw_set", "raw_clear", "set_output", "strobe", "set_hotkeys"}
 STROBE_LEVEL = 200   # значення каналу строба для кнопки «Строб», якщо в приладу строб не задано
 SCENE_FORMAT = "sc-dmx-scene"    # файл сцени (.scdmx) для перенесення між комп'ютерами
@@ -130,7 +131,10 @@ def _scene_state(vals: dict, segments: int) -> dict:
 
 
 def _byte(v) -> int:
-    v = int(v)
+    try:
+        v = int(v)
+    except (OverflowError, TypeError, ValueError):
+        raise ValueError("значення має бути числом 0..255") from None
     if not 0 <= v <= 255:
         raise ValueError("значення має бути 0..255")
     return v
@@ -168,6 +172,7 @@ class Engine:
         self.strobe: dict = {"on": False, "ids": []}
         # власні гарячі клавіші: {дія: [комбінації]}; стандартні — в інтерфейсі
         self.hotkeys: dict[str, list[str]] = {}
+        self.load_warning: str | None = None   # повідомлення для інтерфейсу про проблему з налаштуваннями
         self.effect: dict = {"type": "none", "ids": [], "speed": 0.5, "spread": 1.0, "colors": [],
                              "by_segment": True}
         self.universe = bytearray(DMX_CHANNELS)
@@ -190,7 +195,26 @@ class Engine:
     def load(self) -> None:
         if not self.config_path.exists():
             return  # перший запуск: прилади додає користувач
-        cfg = json.loads(self.config_path.read_text("utf-8"))
+        fields = ("profiles", "device_profiles", "recent_models", "fixtures", "scenes", "static_colors",
+                  "output_cfg", "master", "hotkeys")
+        defaults = {k: copy.deepcopy(getattr(self, k)) for k in fields}
+        try:
+            cfg = json.loads(self.config_path.read_text("utf-8"))
+            if not isinstance(cfg, dict):
+                raise ValueError("не об'єкт JSON")
+            self._apply_config(cfg)
+        except (UnicodeDecodeError, ValueError, TypeError, KeyError, AttributeError) as exc:
+            # зіпсований файл (збій диска, ручне редагування) — відкладаємо його вбік і стартуємо з
+            # чистими налаштуваннями, а не лишаємо програму без запуску
+            for k, v in defaults.items():
+                setattr(self, k, v)
+            broken = self.config_path.with_name(f"config.broken-{time.strftime('%Y%m%d-%H%M%S')}.json")
+            self.config_path.replace(broken)
+            log.error("Файл налаштувань пошкоджено (%r), його збережено як %s", exc, broken.name)
+            self.load_warning = (f"Файл налаштувань був пошкоджений, тож програма почала з чистих налаштувань. "
+                                 f"Старий файл збережено як {broken.name} у теці програми.")
+
+    def _apply_config(self, cfg: dict) -> None:
         self.profiles.update(cfg.get("profiles", {}))
         self.device_profiles = set(cfg.get("device_profiles", [])) & set(self.profiles)
         self.recent_models = [{"m": str(r["m"]), "n": str(r["n"])} for r in cfg.get("recent_models", [])
@@ -347,6 +371,7 @@ class Engine:
             "strobe_fixtures": [f.id for f in self.fixtures if "strobe" in self.profiles.get(f.profile, [])],
             "strobe": self.strobe,
             "hotkeys": self.hotkeys,
+            "load_warning": self.load_warning,
             "undo": self._undo[-1][0] if self._undo else None,
             "redo": self._redo[-1][0] if self._redo else None,
             "overlaps": find_overlaps(self.fixtures, self.profiles),
@@ -362,11 +387,13 @@ class Engine:
         pushed = False
         if cmd not in NO_UNDO:
             ids = msg.get("ids")
+            # зливаються лише серії руху повзунка; дискретні дії (додати прилад, вибрати пресет чи
+            # тип ефекту) — завжди окремі кроки, навіть якщо зроблені швидко одна за одною
             key = (cmd, tuple(sorted(map(str, ids))) if ids else None,
                    tuple(sorted(k for k in msg if k not in ("cmd", "ids"))),
-                   msg.get("index"), msg.get("id"), msg.get("name"))
+                   msg.get("index"), msg.get("id"), msg.get("name"), msg.get("n"), msg.get("type"))
             now = time.monotonic()
-            if key != self._undo_key or now - self._undo_t > UNDO_MERGE_S:
+            if (cmd not in MERGEABLE or key != self._undo_key or now - self._undo_t > UNDO_MERGE_S):
                 self._undo.append((cmd, self._snapshot()))
                 del self._undo[:-UNDO_LIMIT]
                 pushed = True
@@ -486,7 +513,7 @@ class Engine:
         або hex [+ hex_w, w]}.
         """
         if "index" in m:
-            preset = self.static_colors[int(m["index"])]
+            preset = self._static(m["index"])
         else:
             preset = {k: m[k] for k in ("hex", "hex_w", "w") if k in m}
         rgb = hex_to_rgb(preset["hex"])
@@ -519,14 +546,21 @@ class Engine:
             raise ValueError("забагато статичних кольорів (максимум 48)")
         self.static_colors.append(entry)
 
+    def _static(self, index) -> dict:
+        """Збережений колір за номером. Список міг змінитися на іншому пристрої — тоді зрозуміла помилка."""
+        try:
+            return self.static_colors[int(index)]
+        except (IndexError, TypeError, ValueError):
+            raise ValueError("цього кольору вже немає — список кольорів змінився") from None
+
     def cmd_rename_static_color(self, m):
         name = str(m.get("name") or "").strip()
         if not name:
             raise ValueError("назва не може бути порожньою")
-        self.static_colors[int(m["index"])]["name"] = name[:40]
+        self._static(m["index"])["name"] = name[:40]
 
     def cmd_delete_static_color(self, m):
-        self.static_colors.pop(int(m["index"]))
+        self.static_colors.remove(self._static(m["index"]))
 
     def cmd_reset_static_colors(self, m):
         self.static_colors = [dict(c) for c in DEFAULT_STATIC_COLORS]
@@ -537,7 +571,9 @@ class Engine:
     def cmd_strobe(self, m):
         """Кнопка «Строб»: on — увімкнути/вимкнути (без on — перемкнути);
         ids — прилади (порожньо — усі). Діє лише на прилади з каналом строба."""
-        on = bool(m.get("on", not self.strobe["on"]))
+        on = m.get("on", not self.strobe["on"])
+        if not isinstance(on, bool):
+            raise ValueError("on має бути true або false")
         ids = []
         if on:
             whole, segs = self._resolve(m.get("ids"))
@@ -590,7 +626,7 @@ class Engine:
         address = int(m["address"])
         new = []
         for i in range(count):
-            name = m.get("name") or "Прожектор"
+            name = str(m.get("name") or "Прожектор").strip()[:80] or "Прожектор"
             if count > 1 or not m.get("name"):
                 name = f"{name} {len(self.fixtures) + len(new) + 1}"
             fx = Fixture(id=uuid.uuid4().hex[:8], name=name, address=address + i * width,
@@ -604,6 +640,8 @@ class Engine:
     def cmd_update_fixture(self, m):
         fx = self._fx(m["id"])
         changes = {k: m[k] for k in ("name", "address") if k in m}
+        if "name" in changes:
+            changes["name"] = str(changes["name"]).strip()[:80] or fx.name
         model = fx.model
         if "profile" in m or "channels" in m:
             profile, new_model = self._profile_from(m)
@@ -638,7 +676,9 @@ class Engine:
             raise ValueError("вкажіть назву профілю")
         if name in DEFAULT_PROFILES:
             raise ValueError("вбудований профіль не можна змінити")
-        channels = [c.strip() for c in m["channels"]]
+        if not isinstance(m["channels"], list):
+            raise ValueError("канали профілю — це список")
+        channels = [str(c).strip() for c in m["channels"]]
         validate_profile(channels)
         if m.get("assign_to"):  # одразу призначити профіль приладу
             fx = self._fx(m["assign_to"])
