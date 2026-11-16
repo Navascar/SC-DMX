@@ -1,4 +1,4 @@
 """SC DMX — керування RGB-прожекторами через USB DMX (uDMX) та інші DMX-інтерфейси."""
-__version__ = "1.26.3"
+__version__ = "1.26.4"
 APP_NAME = "SC DMX"
 GITHUB_REPO = "Navascar/SC-DMX"
