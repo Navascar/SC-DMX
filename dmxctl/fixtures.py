@@ -82,7 +82,8 @@ class Fixture:
     # Вбудована програма (пресет) приладу: номер у PROGRAMS (1..N) або None
     preset: int | None = None
     speed: int = 128             # швидкість програми, 0..255
-    # Чи має прилад вбудовані пресети: None — визначити автоматично за профілем
+    # Колишня галочка «Вбудовані пресети» (до 1.27). Не використовується: пресети є лише
+    # в профілів з каналом програми. Поле лишається, щоб читати старі налаштування.
     presets: bool | None = None
     # Модель з бібліотеки, з якою додано прилад: {"m": виробник, "n": модель, "mode": режим}.
     # Її профіль належить приладу і не показується в загальному меню профілів.
@@ -136,11 +137,12 @@ def preset_level(n: int) -> int:
     return (lo + hi) // 2
 
 
-def has_presets(fx: Fixture) -> bool:
-    """Пресети доступні LED-барам: профілі WASH 243 — автоматично, інші — за галочкою."""
-    if fx.presets is not None:
-        return bool(fx.presets)
-    return fx.profile.startswith(WASH243)
+def has_presets(channels: list[str]) -> bool:
+    """Пресети (вбудовані програми) — лише в профілів з каналом програми (macro).
+
+    Базові профілі (RGB, Dim+RGB…) пресетів не мають.
+    """
+    return "macro" in channels
 
 
 def segment_count(channels: list[str]) -> int:

@@ -67,7 +67,7 @@ $Body = @'
                 <CheckBox x:Name="PartColors" Style="{StaticResource Check}" IsChecked="True" Margin="0,10,0,0"
                           Content="Статичні кольори"/>
                 <CheckBox x:Name="PartSettings" Style="{StaticResource Check}" IsChecked="True" Margin="0,10,0,0"
-                          Content="Налаштування: DMX-інтерфейс і загальна яскравість"/>
+                          Content="Налаштування: DMX-інтерфейс, яскравість і гарячі клавіші"/>
                 <TextBlock Foreground="{StaticResource Muted}" FontSize="12" Margin="0,12,0,0" TextWrapping="Wrap"
                            Text="Щоб зберегти окрему сцену, спершу збережіть її у файл: меню сцени → «Зберегти у файл…»."/>
               </StackPanel>

@@ -20,6 +20,7 @@
   </div>
   <button id="updateBtn" class="btn update-btn" hidden></button>
   <button id="clearColors" data-icon="eraser" class="btn clear-btn" title="Очистити кольори — Delete"><span id="clearLabel">Очистити все</span></button>
+  <button id="strobe" data-icon="bolt" class="btn strobe-btn" title="Строб — S" aria-pressed="false">Строб</button>
   <button id="blackout" data-icon="bulbOff" class="btn danger icon-btn" title="Вимкнути все світло — B" aria-label="Blackout"></button>
   <button id="openSettings" data-icon="settings" class="btn ghost icon-btn" title="Налаштування" aria-label="Налаштування"></button>
 </header>
@@ -139,6 +140,7 @@
     <button data-tab="tabOutput" class="active">DMX-вихід</button>
     <button data-tab="tabPatch">Патч приладів</button>
     <button data-tab="tabProfiles">Профілі</button>
+    <button data-tab="tabKeys">Гарячі клавіші</button>
     <button data-tab="tabAbout">Про програму</button>
   </nav>
 
@@ -198,6 +200,13 @@
       <label>Назва <input id="profName" placeholder="Мій PAR 7 кан."></label>
       <label>Канали через кому <input id="profChannels" placeholder="dim, r, g, b, w, strobe, zero"></label>
       <button class="btn primary" id="profSave" type="button">Зберегти профіль</button>
+    </div>
+  </div>
+  <div id="tabKeys" class="tab">
+    <p class="muted keys-hint">Натисніть «Змінити» і потім потрібну клавішу або поєднання з Ctrl, Shift чи Alt. Esc — скасувати.</p>
+    <div id="keyList" class="key-list"></div>
+    <div class="row" style="margin-top:12px">
+      <button class="btn" id="keysReset" type="button" data-icon="reset">Відновити стандартні</button>
     </div>
   </div>
   <div id="tabAbout" class="tab">
@@ -302,7 +311,6 @@
       <button class="btn" id="propModeBtn" type="button">Змінити режим</button>
     </div>
     <label>Профіль <select id="propProfile"></select></label>
-    <label class="check"><input type="checkbox" id="propPresets"> Вбудовані пресети</label>
     <p id="propInfo" class="info"></p>
     <p id="propWarn" class="warn" hidden></p>
     <details id="propTest" class="ch-test">

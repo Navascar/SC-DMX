@@ -22,7 +22,8 @@ log = logging.getLogger(__name__)
 FPS = 40
 UNDO_LIMIT = 100
 UNDO_MERGE_S = 1.0   # серія однакових команд (рух повзунка) — один крок скасування
-NO_UNDO = {"undo", "redo", "raw_set", "raw_clear", "set_output"}
+NO_UNDO = {"undo", "redo", "raw_set", "raw_clear", "set_output", "strobe", "set_hotkeys"}
+STROBE_LEVEL = 200   # значення каналу строба для кнопки «Строб», якщо в приладу строб не задано
 SCENE_FORMAT = "sc-dmx-scene"    # файл сцени (.scdmx) для перенесення між комп'ютерами
 SCENE_EXT = ".scdmx"
 
@@ -101,6 +102,20 @@ def _byte(v) -> int:
     return v
 
 
+def _hotkeys(raw) -> dict[str, list[str]]:
+    """Перевірка гарячих клавіш: {дія: [комбінація, …]}, рядки до 40 символів."""
+    if not isinstance(raw, dict):
+        raise ValueError("гарячі клавіші — це словник")
+    out: dict[str, list[str]] = {}
+    for action, keys in list(raw.items())[:64]:
+        if not isinstance(action, str) or not isinstance(keys, list) or len(action) > 40:
+            raise ValueError("неправильні гарячі клавіші")
+        if not all(isinstance(k, str) and 0 < len(k) <= 40 for k in keys):
+            raise ValueError("неправильні гарячі клавіші")
+        out[action] = keys[:4]
+    return out
+
+
 class Engine:
     def __init__(self, config_path: str | os.PathLike):
         self.config_path = Path(config_path)
@@ -115,6 +130,10 @@ class Engine:
         self.output_cfg: dict = {"type": "udmx"}
         self.master = 255
         self.blackout = False
+        # кнопка «Строб»: прилади з каналом строба; не зберігається і не скасовується
+        self.strobe: dict = {"on": False, "ids": []}
+        # власні гарячі клавіші: {дія: [комбінації]}; стандартні — в інтерфейсі
+        self.hotkeys: dict[str, list[str]] = {}
         self.effect: dict = {"type": "none", "ids": [], "speed": 0.5, "spread": 1.0, "colors": [],
                              "by_segment": True}
         self.universe = bytearray(DMX_CHANNELS)
@@ -151,11 +170,15 @@ class Engine:
             f.model = _model(f.model)
         if "device_profiles" not in cfg:
             self._migrate_device_profiles()
+        for f in self.fixtures:  # пресети лишаються тільки в профілів з каналом програми
+            if f.preset is not None and not self._has_presets(f):
+                f.preset = None
         self.scenes = cfg.get("scenes", {})
         if "static_colors" in cfg:
             self.static_colors = cfg["static_colors"]
         self.output_cfg = cfg.get("output", {"type": "udmx"})
         self.master = int(cfg.get("master", 255))
+        self.hotkeys = _hotkeys(cfg.get("hotkeys", {}))
 
     def _migrate_device_profiles(self) -> None:
         """До 1.20 профілі моделей бібліотеки зберігалися як звичайні — прив'язуємо їх до приладів."""
@@ -207,6 +230,8 @@ class Engine:
             "scenes": self.scenes,
             "static_colors": self.static_colors,
         }
+        if self.hotkeys:
+            cfg["hotkeys"] = self.hotkeys
         tmp = self.config_path.with_suffix(".tmp")
         tmp.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), "utf-8")
         tmp.replace(self.config_path)
@@ -231,6 +256,9 @@ class Engine:
             return []
         wanted = set(ids)
         return [f for f in self.fixtures if f.id in wanted]
+
+    def _has_presets(self, fx: Fixture) -> bool:
+        return has_presets(self.profiles.get(fx.profile, []))
 
     def _segments(self, fx: Fixture) -> int:
         return segment_count(self.profiles.get(fx.profile, []))
@@ -281,7 +309,10 @@ class Engine:
             "preset_count": PRESET_COUNT,
             "programs": [{"n": i + 1, "name": name, "group": grp, "range": [lo, hi]}
                          for i, (name, grp, lo, hi) in enumerate(PROGRAMS)],
-            "preset_fixtures": [f.id for f in self.fixtures if has_presets(f)],
+            "preset_fixtures": [f.id for f in self.fixtures if has_presets(self.profiles.get(f.profile, []))],
+            "strobe_fixtures": [f.id for f in self.fixtures if "strobe" in self.profiles.get(f.profile, [])],
+            "strobe": self.strobe,
+            "hotkeys": self.hotkeys,
             "undo": self._undo[-1][0] if self._undo else None,
             "redo": self._redo[-1][0] if self._redo else None,
             "overlaps": find_overlaps(self.fixtures, self.profiles),
@@ -385,11 +416,11 @@ class Engine:
             preset_level(n)  # перевірка діапазону
         speed = _byte(m["speed"]) if "speed" in m else None
         whole, segs = self._resolve(m.get("ids"))
-        targets = {f.id: f for f in whole + [f for f, _ in segs] if has_presets(f)}
+        targets = {f.id: f for f in whole + [f for f, _ in segs] if self._has_presets(f)}
         if not targets and not m.get("ids"):
-            targets = {f.id: f for f in self.fixtures if has_presets(f)}
+            targets = {f.id: f for f in self.fixtures if self._has_presets(f)}
         if not targets:
-            raise ValueError("Пресети доступні лише для LED-барів")
+            raise ValueError("Пресети доступні лише приладам з каналом програми")
         self._fade = None
         for f in targets.values():
             if set_n:
@@ -469,6 +500,25 @@ class Engine:
     def cmd_set_master(self, m):
         self.master = _byte(m["value"])
 
+    def cmd_strobe(self, m):
+        """Кнопка «Строб»: on — увімкнути/вимкнути (без on — перемкнути);
+        ids — прилади (порожньо — усі). Діє лише на прилади з каналом строба."""
+        on = bool(m.get("on", not self.strobe["on"]))
+        ids = []
+        if on:
+            whole, segs = self._resolve(m.get("ids"))
+            ids = sorted({f.id for f in whole} | {f.id for f, _ in segs})
+            able = [f for f in self.fixtures if "strobe" in self.profiles.get(f.profile, [])
+                    and (not ids or f.id in ids)]
+            if not able:
+                raise ValueError("Строб доступний лише приладам з каналом строба")
+            ids = [f.id for f in able] if ids else []
+        self.strobe = {"on": on, "ids": ids}
+
+    def cmd_set_hotkeys(self, m):
+        """Власні гарячі клавіші: {дія: [комбінації]}. Порожньо — усі стандартні."""
+        self.hotkeys = _hotkeys(m.get("hotkeys") or {})
+
     def cmd_blackout(self, m):
         self.blackout = bool(m.get("on", not self.blackout))
 
@@ -535,9 +585,7 @@ class Engine:
         fx.model = dict(model) if model and self._is_device(fx.profile) else None
         if fx.model and "model" in m:
             self._remember(fx.model)
-        if "presets" in m:
-            fx.presets = None if m["presets"] is None else bool(m["presets"])
-        if not has_presets(fx):
+        if not self._has_presets(fx):
             fx.preset = None
 
     def cmd_delete_fixture(self, m):
@@ -826,24 +874,15 @@ class Engine:
             channels = self.profiles.get(fx.profile)
             if not channels:
                 continue
-            if fx.preset and has_presets(fx) and "macro" in channels:
+            if self.strobe["on"] and "strobe" in channels and (not self.strobe["ids"] or fx.id in self.strobe["ids"]):
+                fx = replace(fx, strobe=fx.strobe or STROBE_LEVEL)
+            if fx.preset and has_presets(channels):
                 # профіль з каналом програми (A001 / H001): програма — у свій канал
                 n_seg = segment_count(channels)
                 render_fixture(uni, fx, channels, [fx.seg_color(k) for k in range(n_seg)], master)
                 rgb = _program_rgb(fx.preset)
                 lvl = (fx.dimmer / 255.0 if "dim" in channels else 1.0) * master
                 live[fx.id] = [[round(c * lvl) for c in rgb] + [0]] * n_seg
-                continue
-            if fx.preset and has_presets(fx):
-                # профіль без каналу програми (бар у режимі A001, а в програмі — RGB-профіль):
-                # червоний на максимумі, яскравість = значення програми; майстер не зсуває рівень
-                lvl = preset_level(fx.preset)
-                red = {"r": 255.0, "g": 0.0, "b": 0.0, "w": 0.0, "a": 0.0, "uv": 0.0}
-                pf = replace(fx, dimmer=lvl, segs=None, w=0, a=0, uv=0)
-                render_fixture(uni, pf, channels, [red] * segment_count(channels),
-                               0.0 if self.blackout else 1.0)
-                shown = 0 if self.blackout else lvl
-                live[fx.id] = [[shown, 0, 0, 0]] * segment_count(channels)
                 continue
             colors = []
             for k in range(segment_count(channels)):

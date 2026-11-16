@@ -242,6 +242,7 @@ function renderAll() {
   renderEffects();
   renderScenes();
   renderSettings();
+  renderKeys();
   setOutput(S.output);
 }
 
@@ -259,6 +260,12 @@ function syncMaster() {
   if (activeSlider !== "master") $("#master").value = S.master;
   $("#masterVal").textContent = Math.round((S.master / 255) * 100) + "%";
   $("#blackout").classList.toggle("active", S.blackout);
+  const st = $("#strobe");
+  const strobeOn = !!S.strobe?.on;
+  st.classList.toggle("active", strobeOn);
+  st.setAttribute("aria-pressed", String(strobeOn));
+  st.disabled = !strobeOn && !(S.strobe_fixtures || []).length;
+  updateKeyTitles();
 }
 
 function renderFixtures() {
@@ -932,7 +939,6 @@ function openProps(id) {
   $("#propName").value = f.name;
   $("#propAddress").value = f.address;
   $("#propDimmer").value = f.dimmer;
-  $("#propPresets").checked = (S.preset_fixtures || []).includes(f.id);
   updatePropInfo();
   $("#propDlg").showModal();
 }
@@ -1077,8 +1083,7 @@ function bindProps() {
     sendThrottled("color", { cmd: "set_color", ids: [propId], dimmer: +$("#propDimmer").value }));
   $("#propSave").onclick = () => {
     const msg = { cmd: "update_fixture", id: propId, name: $("#propName").value.trim() || "Прилад",
-                  address: +$("#propAddress").value, profile: $("#propProfile").value,
-                  presets: $("#propPresets").checked };
+                  address: +$("#propAddress").value, profile: $("#propProfile").value };
     if (propDevice?.changed && msg.profile === propDevice.name)
       Object.assign(msg, { channels: propDevice.channels, model: propDevice.model });
     send(msg);
@@ -1319,13 +1324,13 @@ function fixturesPanelMenu() {
   return [
     { title: "Прилади" },
     { icon: "＋", label: "Додати прилад…", action: openAdd },
-    S.fixtures.length > 0 && { icon: "☰", label: "Вибрати всі прилади", key: "Ctrl+A", action: () => $("#selAll").click() },
-    selected.size > 0 && { icon: "○", label: "Зняти вибір", key: "Esc", action: () => $("#selNone").click() },
+    S.fixtures.length > 0 && { icon: "☰", label: "Вибрати всі прилади", key: shortKey("selectAll"), action: () => $("#selAll").click() },
+    selected.size > 0 && { icon: "○", label: "Зняти вибір", key: shortKey("selectNone"), action: () => $("#selNone").click() },
     S.fixtures.length > 0 && { icon: "⇄", label: "Інвертувати вибір", action: () => $("#selInvert").click() },
     { sep: true },
-    { icon: "⌫", label: selected.size ? "Очистити вибрані" : "Очистити всі кольори", key: "Del", action: clearColors },
+    { icon: "⌫", label: selected.size ? "Очистити вибрані" : "Очистити всі кольори", key: shortKey("clear"), action: clearColors },
     { icon: "▤", label: "Патч приладів…", action: () => {
-        $("#openSettings").click(); document.querySelector(".tabs button[data-tab=tabPatch]").click();
+        $("#openSettings").click(); showTab("tabPatch");
       } },
   ];
 }
@@ -1348,16 +1353,17 @@ function redo() { pendingUndo = "redo"; send({ cmd: "redo" }); }
 function generalMenu() {
   const u = updateInfo || {};
   return [
-    { icon: "↶", label: S.undo ? `Скасувати ${undoName(S.undo)}` : "Скасувати", key: "Ctrl+Z", disabled: !S.undo, action: undo },
-    { icon: "↷", label: S.redo ? `Повторити ${undoName(S.redo)}` : "Повторити", key: "Ctrl+Y", disabled: !S.redo, action: redo },
+    { icon: "↶", label: S.undo ? `Скасувати ${undoName(S.undo)}` : "Скасувати", key: shortKey("undo"), disabled: !S.undo, action: undo },
+    { icon: "↷", label: S.redo ? `Повторити ${undoName(S.redo)}` : "Повторити", key: shortKey("redo"), disabled: !S.redo, action: redo },
     { sep: true },
     { icon: "＋", label: "Додати прилад…", action: openAdd },
-    S.fixtures.length > 0 && { icon: "☰", label: "Вибрати всі прилади", key: "Ctrl+A", action: () => $("#selAll").click() },
-    selected.size > 0 && { icon: "○", label: "Зняти вибір", key: "Esc", action: () => $("#selNone").click() },
+    S.fixtures.length > 0 && { icon: "☰", label: "Вибрати всі прилади", key: shortKey("selectAll"), action: () => $("#selAll").click() },
+    selected.size > 0 && { icon: "○", label: "Зняти вибір", key: shortKey("selectNone"), action: () => $("#selNone").click() },
     { sep: true },
     { icon: "⌫", label: "Очистити всі кольори", action: () => send({ cmd: "clear", ids: [] }) },
     S.effect.type !== "none" && { icon: "■", label: "Зупинити всі ефекти", action: () => send({ cmd: "set_effect", type: "none" }) },
-    { icon: "◐", label: S.blackout ? "Вимкнути Blackout" : "Blackout", key: "B", action: () => send({ cmd: "blackout" }) },
+    { icon: "◐", label: S.blackout ? "Вимкнути Blackout" : "Blackout", key: shortKey("blackout"), action: () => send({ cmd: "blackout" }) },
+    (S.strobe_fixtures || []).length > 0 && { icon: "ϟ", label: S.strobe?.on ? "Вимкнути строб" : "Строб", key: shortKey("strobe"), action: toggleStrobe },
     { sep: true },
     u.available && !u.blocked && { icon: "⬆", label: `Оновити до ${u.latest}…`, action: openUpdateDialog },
     !(u.available && !u.blocked) && { icon: "⟳", label: "Перевірити оновлення", action: () => send({ cmd: "check_update" }) },
@@ -1680,21 +1686,202 @@ function toggleOutFields() {
   for (const n of document.querySelectorAll("[data-for]")) n.hidden = !n.dataset.for.split(" ").includes(t);
 }
 
+// ------------------------------------------------------- гарячі клавіші ---
+// Комбінація — «Ctrl+Shift+Alt+код»: код фізичної клавіші (e.code), тож клавіші працюють
+// на будь-якій розкладці. Власні призначення зберігаються в програмі (S.hotkeys), стандартні — тут.
+const HOTKEYS = [
+  { group: "Світло" },
+  { id: "blackout", label: "Blackout — вимкнути все світло", keys: ["KeyB"] },
+  { id: "strobe", label: "Строб", keys: ["KeyS"] },
+  { id: "clear", label: "Очистити кольори", keys: ["Delete", "Backspace", "Digit0"] },
+  { id: "effectStop", label: "Зупинити всі ефекти", keys: [] },
+  { group: "Вибір приладів" },
+  { id: "selectAll", label: "Вибрати всі прилади", keys: ["Ctrl+KeyA"] },
+  { id: "selectNone", label: "Зняти вибір", keys: ["Escape"] },
+  { id: "selectInvert", label: "Інвертувати вибір", keys: [] },
+  { group: "Скасування" },
+  { id: "undo", label: "Скасувати", keys: ["Ctrl+KeyZ"] },
+  { id: "redo", label: "Повторити", keys: ["Ctrl+KeyY", "Ctrl+Shift+KeyZ"] },
+  { group: "Статичні кольори" },
+  ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => ({ id: "static" + n, label: `Статичний колір ${n}`, keys: ["Digit" + n] })),
+  { group: "Вікна" },
+  { id: "settings", label: "Налаштування", keys: [] },
+];
+const HOTKEY_BY_ID = Object.fromEntries(HOTKEYS.filter((h) => h.id).map((h) => [h.id, h]));
+const MODIFIER_KEYS = new Set(["Control", "Shift", "Alt", "Meta", "AltGraph", "CapsLock", "NumLock", "OS"]);
+const KEY_NAMES = {
+  Escape: "Esc", Delete: "Del", Backspace: "Backspace", Space: "Пробіл", Enter: "Enter", Tab: "Tab",
+  ArrowUp: "↑", ArrowDown: "↓", ArrowLeft: "←", ArrowRight: "→", Insert: "Ins", Home: "Home", End: "End",
+  PageUp: "PgUp", PageDown: "PgDn", Minus: "-", Equal: "=", BracketLeft: "[", BracketRight: "]",
+  Semicolon: ";", Quote: "'", Backquote: "`", Backslash: "\\", Comma: ",", Period: ".", Slash: "/",
+  NumpadAdd: "Num +", NumpadSubtract: "Num -", NumpadMultiply: "Num *", NumpadDivide: "Num /",
+  NumpadDecimal: "Num .", NumpadEnter: "Enter",
+};
+
+function comboOf(e) {
+  if (MODIFIER_KEYS.has(e.key) || !e.code) return null;
+  // цифри на цифровому блоці — те саме, що й у верхньому ряду
+  const code = /^Numpad\d$/.test(e.code) ? "Digit" + e.code.slice(6) : e.code;
+  const parts = [];
+  if (e.ctrlKey || e.metaKey) parts.push("Ctrl");
+  if (e.shiftKey) parts.push("Shift");
+  if (e.altKey) parts.push("Alt");
+  parts.push(code);
+  return parts.join("+");
+}
+const keysFor = (id) => (S.hotkeys && Array.isArray(S.hotkeys[id]) ? S.hotkeys[id] : HOTKEY_BY_ID[id].keys);
+const actionFor = (combo) => HOTKEYS.find((h) => h.id && keysFor(h.id).includes(combo))?.id || null;
+function keyLabel(combo) {
+  return combo.split("+").map((p) => KEY_NAMES[p] || p.replace(/^Key/, "").replace(/^Digit/, "")).join("+");
+}
+const shortKey = (id) => (keysFor(id)[0] ? keyLabel(keysFor(id)[0]) : undefined);
+
+function runHotkey(id) {
+  if (id.startsWith("static")) {
+    const i = +id.slice(6) - 1;
+    if (S.static_colors[i]) send({ cmd: "static_color", index: i, ids: [...selected] });
+    return;
+  }
+  ({
+    blackout: () => send({ cmd: "blackout" }),
+    strobe: toggleStrobe,
+    clear: clearColors,
+    effectStop: () => send({ cmd: "set_effect", type: "none" }),
+    selectAll: () => $("#selAll").click(),
+    selectNone: () => $("#selNone").click(),
+    selectInvert: () => $("#selInvert").click(),
+    undo, redo,
+    settings: () => $("#openSettings").click(),
+  })[id]?.();
+}
+
+function toggleStrobe() {
+  const on = !S.strobe?.on;
+  if (on && !(S.strobe_fixtures || []).length) return toast("Немає приладів з каналом строба");
+  send({ cmd: "strobe", on, ids: [...selected] });
+}
+
+// Підказки кнопок з поточними клавішами
+function updateKeyTitles() {
+  const k = (id) => (shortKey(id) ? " — " + shortKey(id) : "");
+  const st = $("#strobe");
+  st.title = st.disabled ? "Немає приладів з каналом строба" : (S.strobe?.on ? "Вимкнути строб" : "Строб") + k("strobe");
+  $("#blackout").title = "Вимкнути все світло" + k("blackout");
+  $("#clearColors").title = "Очистити кольори" + k("clear");
+}
+
+let capturing = null;   // { id, row } — рядок, що чекає нову клавішу
+let captureCancelledAt = 0;
+function renderKeys() {
+  if (capturing) return;
+  const custom = S.hotkeys || {};
+  $("#keyList").replaceChildren(...HOTKEYS.map((h) => {
+    if (h.group) return el("div", { className: "key-group", textContent: h.group });
+    const keys = keysFor(h.id);
+    const caps = el("div", { className: "key-caps" },
+      ...(keys.length ? keys.map((c) => el("kbd", { textContent: keyLabel(c) }))
+        : [el("span", { className: "none", textContent: "Не призначено" })]));
+    const row = el("div", { className: "key-row" + (h.id in custom ? " changed" : "") },
+      el("span", { className: "key-name", textContent: h.label }), caps);
+    const change = el("button", { className: "btn small", type: "button", textContent: "Змінити" });
+    change.onclick = () => (capturing?.id === h.id ? stopCapture() : startCapture(h.id, row, change));
+    // стовпці однакові в усіх рядках: «Стандартна» · «Змінити» · «Прибрати» (порожнє місце, якщо не потрібно)
+    let reset = el("span");
+    if (h.id in custom) {
+      reset = el("button", { className: "btn small", type: "button", textContent: "Стандартна",
+        title: "Повернути стандартну клавішу" });
+      reset.onclick = () => assignKeys(h.id, HOTKEY_BY_ID[h.id].keys, true);
+    }
+    let off = el("span");
+    if (keys.length) {
+      off = el("button", { className: "btn small ghost", type: "button", textContent: "Прибрати",
+        title: "Залишити дію без клавіші" });
+      off.onclick = () => assignKeys(h.id, []);
+    }
+    const actions = el("div", { className: "key-actions" }, reset, change, off);
+    row.append(actions);
+    return row;
+  }));
+}
+
+function startCapture(id, row, btn) {
+  stopCapture();
+  capturing = { id, row };
+  row.classList.add("capture");
+  btn.textContent = "Скасувати";
+}
+function stopCapture() {
+  if (!capturing) return;
+  capturing = null;
+  renderKeys();
+}
+function onCaptureKey(e) {
+  if (!capturing) return;
+  e.preventDefault();
+  e.stopPropagation();
+  if (e.key === "Escape" && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+    captureCancelledAt = Date.now();   // Esc скасовує лише вибір клавіші, а не закриває вікно
+    return stopCapture();
+  }
+  const combo = comboOf(e);
+  if (!combo) return;   // поки натиснуто лише Ctrl / Shift / Alt
+  if (combo === "Tab" || combo === "Shift+Tab") return toast("Tab потрібен для переходу між елементами", true);
+  const id = capturing.id;
+  capturing = null;
+  assignKeys(id, [combo]);
+}
+
+// Призначає дії клавіші; ці клавіші знімаються з інших дій
+function assignKeys(id, combos, standard = false) {
+  const map = { ...(S.hotkeys || {}) };
+  for (const h of HOTKEYS) {
+    if (!h.id || h.id === id) continue;
+    const ks = keysFor(h.id);
+    const left = ks.filter((c) => !combos.includes(c));
+    if (left.length !== ks.length) {
+      map[h.id] = left;
+      toast(`${ks.filter((c) => combos.includes(c)).map(keyLabel).join(", ")} більше не діє для «${h.label}»`, true);
+    }
+  }
+  if (standard) delete map[id]; else map[id] = combos;
+  saveKeys(map);
+}
+function saveKeys(map) {
+  // збігається зі стандартним — не зберігаємо
+  for (const [id, ks] of Object.entries(map)) {
+    const def = HOTKEY_BY_ID[id]?.keys;
+    if (!def || (def.length === ks.length && def.every((c, i) => c === ks[i]))) delete map[id];
+  }
+  S.hotkeys = map;
+  send({ cmd: "set_hotkeys", hotkeys: map });
+  renderKeys();
+  updateKeyTitles();
+}
+
+function showTab(id) {
+  document.querySelectorAll(".tabs button, .tab").forEach((x) => x.classList.remove("active"));
+  document.querySelector(`.tabs button[data-tab=${id}]`)?.classList.add("active");
+  $("#" + id)?.classList.add("active");
+}
+
 function bindSettings() {
   const dlg = $("#settings");
-  const open = () => {
-    renderSettings.outputTouched = false; renderSettings(); dlg.showModal();
+  const open = (tab) => {
+    renderSettings.outputTouched = false; renderSettings(); renderKeys();
+    if (tab) showTab(tab);
+    dlg.showModal();
     if ($("#outType").value === "udmx") send({ cmd: "find_udmx" });
   };
-  $("#openSettings").onclick = open;
-  $("#outputPill").onclick = open;
-  for (const b of document.querySelectorAll(".tabs button")) {
-    b.onclick = () => {
-      document.querySelectorAll(".tabs button, .tab").forEach((x) => x.classList.remove("active"));
-      b.classList.add("active");
-      $("#" + b.dataset.tab).classList.add("active");
-    };
-  }
+  $("#openSettings").onclick = () => open();
+  // індикатор виходу — одразу до вибору DMX-виходу, а не до останньої відкритої вкладки
+  $("#outputPill").onclick = () => open("tabOutput");
+  for (const b of document.querySelectorAll(".tabs button")) b.onclick = () => showTab(b.dataset.tab);
+  dlg.addEventListener("close", stopCapture);
+  dlg.addEventListener("cancel", (e) => { if (Date.now() - captureCancelledAt < 500) e.preventDefault(); });
+  $("#keysReset").onclick = async () => {
+    if (!Object.keys(S.hotkeys || {}).length) return;
+    if (await uiConfirm("Повернути стандартні гарячі клавіші для всіх дій?", { ok: "Відновити" })) saveKeys({});
+  };
   for (const id of ["#outType", "#outPort", "#outHost", "#outUniverse"]) {
     $(id).addEventListener("input", () => { renderSettings.outputTouched = true; toggleOutFields(); });
   }
@@ -1866,33 +2053,23 @@ function init() {
     S.fixtures.forEach((f) => had.has(f.id) || selected.add(f.id));
     renderFixtures(); syncSliders();
   };
+  $("#strobe").onclick = toggleStrobe;
+  document.addEventListener("keydown", onCaptureKey, true);
   document.addEventListener("keydown", (e) => {
-    const ctrlA = (e.ctrlKey || e.metaKey) && e.code === "KeyA";
-    const ctrl = e.ctrlKey || e.metaKey;
-    const isUndo = ctrl && e.code === "KeyZ" && !e.shiftKey;
-    const isRedo = ctrl && (e.code === "KeyY" || (e.code === "KeyZ" && e.shiftKey));
-    // у текстовому полі Ctrl+A виділяє лише його текст (стандартна поведінка)
+    const combo = comboOf(e);
+    const action = combo && actionFor(combo);
     const t = e.target instanceof Element ? e.target : document.body;
     if (t.matches("input:not([type=range]):not([type=checkbox]), textarea, [contenteditable]")) return;  // у полях — своє скасування
     if (document.querySelector("dialog:modal") || menuOpen()) {
-      if (ctrlA || isUndo || isRedo) e.preventDefault();  // не виділяти текст вікна
+      // не виділяти текст вікна й не скасовувати дії під ним
+      if (["selectAll", "undo", "redo"].includes(action)) e.preventDefault();
       return;
     }
-    if (isUndo) { e.preventDefault(); undo(); return; }
-    if (isRedo) { e.preventDefault(); redo(); return; }
-    if (t.matches("select")) return;
-    // e.code — фізична клавіша, тож працює і на українській розкладці
-    if (ctrlA) { e.preventDefault(); $("#selAll").click(); return; }
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
-    if (e.code === "KeyB") send({ cmd: "blackout" });
-    if (e.key === "Escape") {
-      $("#selNone").click();
-    }
-    if (e.key === "Delete" || e.key === "Backspace" || e.key === "0") { e.preventDefault(); clearColors(); }
-    // 1..9 — швидкий вибір статичного кольору
-    if (/^[1-9]$/.test(e.key) && S.static_colors[+e.key - 1]) {
-      send({ cmd: "static_color", index: +e.key - 1, ids: [...selected] });
-    }
+    if (!action) return;
+    if (t.matches("select") && action !== "undo" && action !== "redo") return;
+    if (e.repeat && action !== "undo" && action !== "redo") { e.preventDefault(); return; }
+    e.preventDefault();
+    runHotkey(action);
   });
   connect();
 }

@@ -1,9 +1,10 @@
+import json
 import struct
 
 import pytest
 
 from dmxctl.effects import effect_color
-from dmxctl.engine import Engine
+from dmxctl.engine import STROBE_LEVEL, Engine
 from dmxctl.fixtures import DEFAULT_PROFILES, FORMER_PROFILES, Fixture, find_overlaps, render_fixture, validate_fixture
 from dmxctl.outputs import artnet_packet, enttec_pro_packet, sacn_multicast_address, sacn_packet
 
@@ -159,6 +160,7 @@ def test_static_color_stops_effect_and_uses_white_channel(tmp_path):
     assert Engine(tmp_path / "cfg.json").static_colors[-1] == {"name": "Мій", "hex": "#123456"}
 
 
+WASH8 = "Free Color WASH 243 · 8 кан. H001 (Dim, строб, програми, RGB)"
 WASH24 = "Free Color WASH 243 · 24 кан. P001 (8 сегментів)"
 
 
@@ -302,35 +304,72 @@ def test_fixed_roles_and_raw_channel_test(tmp_path):
 
 
 def test_presets_switch_brightness_levels(tmp_path):
-    from dmxctl.fixtures import PRESET_COUNT, PROGRAMS, preset_level
+    from dmxctl.fixtures import PRESET_COUNT, preset_level
     assert PRESET_COUNT == 23
     assert [preset_level(1), preset_level(8), preset_level(23)] == [11, 88, 251]  # червоний, ефект 1, звук
     eng = Engine(tmp_path / "cfg.json")
-    eng.handle({"cmd": "add_fixture", "profile": WASH24, "address": 1})
-    eng.handle({"cmd": "add_fixture", "profile": "Dim+RGB (4 кан.)", "address": 25})
-    bar, par = eng.fixtures
-    eng.handle({"cmd": "update_fixture", "id": par.id, "presets": True})  # пресети вручну для приладу з диммером
-    eng.handle({"cmd": "set_master", "value": 100})          # майстер не зсуває пресет
-    eng.handle({"cmd": "set_effect", "type": "rainbow", "ids": [bar.id, par.id]})
-    eng.handle({"cmd": "preset", "ids": [bar.id, par.id], "n": 3})
+    eng.handle({"cmd": "add_fixture", "profile": WASH8, "address": 1})
+    bar = eng.fixtures[0]
+    eng.handle({"cmd": "set_master", "value": 100})
+    eng.handle({"cmd": "set_effect", "type": "rainbow", "ids": [bar.id]})
+    eng.handle({"cmd": "preset", "ids": [bar.id], "n": 3})
     f = eng.render(0)
-    assert list(f[0:6]) == [33, 0, 0, 33, 0, 0]               # без каналу програми: червоний = значення програми
-    assert list(f[24:28]) == [33, 255, 0, 0]                  # з диммером: dim = значення, червоний 255
+    assert f[2] == preset_level(3)                            # програма — у свій канал
     assert eng.effect["type"] == "none"
-    eng.handle({"cmd": "blackout", "on": True})
-    assert not any(eng.render(0))
-    eng.handle({"cmd": "blackout", "on": False})
-    # звичайний колір вимикає пресет
-    eng.handle({"cmd": "static_color", "hex": "#00ff00", "ids": [bar.id]})
-    assert bar.preset is None and par.preset == 3
-    # сцена зберігає пресет
-    eng.handle({"cmd": "save_scene", "name": "p"})
-    eng.handle({"cmd": "clear", "ids": []})
-    assert par.preset is None
-    eng.handle({"cmd": "recall_scene", "name": "p", "fade": 0})
-    assert par.preset == 3
+
+
+def test_presets_only_with_program_channel(tmp_path):
+    eng = Engine(tmp_path / "cfg.json")
+    eng.handle({"cmd": "add_fixture", "profile": WASH8, "address": 1})
+    eng.handle({"cmd": "add_fixture", "profile": WASH24, "address": 9})
+    eng.handle({"cmd": "add_fixture", "profile": "Dim+RGB (4 кан.)", "address": 40})
+    bar, rgb_bar, par = eng.fixtures
+    # базові профілі й режими без каналу програми пресетів не мають
+    assert eng.state()["preset_fixtures"] == [bar.id]
+    eng.handle({"cmd": "preset", "ids": [], "n": 2})
+    assert bar.preset == 2 and rgb_bar.preset is None and par.preset is None
     with pytest.raises(ValueError):
-        eng.handle({"cmd": "preset", "ids": [par.id], "n": 24})
+        eng.handle({"cmd": "preset", "ids": [par.id], "n": 2})
+    # колишня галочка «Вбудовані пресети» більше нічого не вмикає
+    eng.handle({"cmd": "update_fixture", "id": par.id, "presets": True})
+    with pytest.raises(ValueError):
+        eng.handle({"cmd": "preset", "ids": [par.id], "n": 2})
+
+
+def test_old_presets_on_base_profile_are_dropped(tmp_path):
+    p = tmp_path / "cfg.json"
+    p.write_text(json.dumps({"fixtures": [{"id": "a", "name": "A", "address": 1, "profile": "RGB (3 кан.)",
+                                           "presets": True, "preset": 4}]}), "utf-8")
+    eng = Engine(p)
+    assert eng.fixtures[0].preset is None and eng.state()["preset_fixtures"] == []
+
+
+def test_strobe_button_only_for_strobe_channel(tmp_path):
+    eng = Engine(tmp_path / "cfg.json")
+    eng.handle({"cmd": "add_fixture", "profile": WASH8, "address": 1})       # dim, strobe, …
+    eng.handle({"cmd": "add_fixture", "profile": "RGB (3 кан.)", "address": 20})
+    bar, par = eng.fixtures
+    assert eng.state()["strobe_fixtures"] == [bar.id]
+    eng.handle({"cmd": "strobe", "on": True, "ids": []})
+    f = eng.render(0)
+    assert f[1] == STROBE_LEVEL and eng.state()["strobe"]["on"]
+    assert eng.state()["undo"] == "add_fixture"                  # строб не потрапляє в скасування
+    eng.handle({"cmd": "strobe", "on": False})
+    assert eng.render(0)[1] == 0
+    with pytest.raises(ValueError):                              # лише прилади без строба
+        eng.handle({"cmd": "strobe", "on": True, "ids": [par.id]})
+    eng.handle({"cmd": "strobe", "ids": [bar.id, par.id]})       # без on — перемикає
+    assert eng.strobe == {"on": True, "ids": [bar.id]}
+
+
+def test_hotkeys_saved(tmp_path):
+    eng = Engine(tmp_path / "cfg.json")
+    eng.handle({"cmd": "set_hotkeys", "hotkeys": {"blackout": ["KeyX"], "strobe": []}})
+    eng.save()
+    again = Engine(tmp_path / "cfg.json")
+    assert again.state()["hotkeys"] == {"blackout": ["KeyX"], "strobe": []}
+    with pytest.raises(ValueError):
+        eng.handle({"cmd": "set_hotkeys", "hotkeys": {"blackout": "KeyX"}})
 
 
 def test_wash243_program_modes(tmp_path):
@@ -392,26 +431,6 @@ def test_undo_redo(tmp_path, monkeypatch):
     eng.handle({"cmd": "redo"})
     eng.handle({"cmd": "set_master", "value": 10})
     assert eng.state()["redo"] is None
-
-
-def test_presets_only_for_bars(tmp_path):
-    eng = Engine(tmp_path / "cfg.json")
-    eng.handle({"cmd": "add_fixture", "profile": WASH24, "address": 1})
-    eng.handle({"cmd": "add_fixture", "profile": "Dim+RGB (4 кан.)", "address": 25})
-    bar, par = eng.fixtures
-    assert eng.state()["preset_fixtures"] == [bar.id]
-    # без вибору — лише бари
-    eng.handle({"cmd": "preset", "ids": [], "n": 2})
-    assert bar.preset == 2 and par.preset is None
-    # прилад без пресетів — помилка
-    with pytest.raises(ValueError):
-        eng.handle({"cmd": "preset", "ids": [par.id], "n": 2})
-    # галочка у властивостях вмикає пресети для будь-якого приладу
-    eng.handle({"cmd": "update_fixture", "id": par.id, "presets": True})
-    eng.handle({"cmd": "preset", "ids": [par.id], "n": 5})
-    assert par.preset == 5 and eng.render(0)[24] == 55
-    eng.handle({"cmd": "update_fixture", "id": par.id, "presets": False})
-    assert par.preset is None
 
 
 def test_white_mixes_into_rgb_without_white_channel(tmp_path):

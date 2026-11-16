@@ -3,7 +3,7 @@
 python -m dmxctl.userdata --config <шлях> scenes fixtures ...
 
 Частини: scenes — сцени; fixtures — прилади (разом із профілями їхніх моделей і нещодавніми моделями);
-profiles — власні профілі каналів; colors — статичні кольори; settings — DMX-інтерфейс і яскравість.
+profiles — власні профілі каналів; colors — статичні кольори; settings — DMX-інтерфейс, яскравість і гарячі клавіші.
 Якщо після видалення нічого не лишилося, config.json видаляється повністю.
 Код виходу: 0 — готово, 2 — неправильні аргументи, 1 — помилка.
 """
@@ -35,6 +35,7 @@ def strip(cfg: dict, parts: set[str]) -> dict:
     if "settings" in parts:
         cfg.pop("output", None)
         cfg.pop("master", None)
+        cfg.pop("hotkeys", None)
     if "profiles" in cfg or profiles:
         cfg["profiles"] = profiles
     return cfg
