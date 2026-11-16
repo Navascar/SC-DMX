@@ -68,7 +68,7 @@ $ScDmxResources = @'
         </Setter.Value>
       </Setter>
     </Style>
-    <!-- заливка під білим текстом — --accent-strong (контраст 4.7:1), як у програмі -->
+    <!-- заливка під білим текстом, як accent-strong у програмі (контраст 4.7:1) -->
     <Style x:Key="Primary" TargetType="Button" BasedOn="{StaticResource Btn}">
       <Setter Property="Background" Value="#3570D9"/>
       <Setter Property="BorderBrush" Value="#3570D9"/>
