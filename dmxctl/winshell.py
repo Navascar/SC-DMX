@@ -8,6 +8,8 @@
 Ярлики запускають sc-dmx.pyw через pythonw.exe — без консолі й з будь-якої теки.
 
 python -m dmxctl.winshell install   — створити ярлики (так робить інсталятор)
+    --no-desktop      без ярлика на робочому столі
+    --no-start-menu   без ярлика в меню «Пуск»
 """
 from __future__ import annotations
 
@@ -87,9 +89,10 @@ def write_shortcut(path: Path) -> None:
     link.QueryInterface(pythoncom.IID_IPersistFile).Save(str(path), 0)
 
 
-def install_shortcuts() -> list[Path]:
-    """Ярлики «SC DMX» на робочому столі й у меню «Пуск»."""
-    paths = [d / f"{APP_NAME}.lnk" for d in _shortcut_dirs()]
+def install_shortcuts(desktop: bool = True, start_menu: bool = True) -> list[Path]:
+    """Ярлики «SC DMX» на робочому столі й у меню «Пуск» (лише вибрані)."""
+    desk, programs = _shortcut_dirs()
+    paths = [d / f"{APP_NAME}.lnk" for d, on in ((desk, desktop), (programs, start_menu)) if on]
     for p in paths:
         write_shortcut(p)
     _notify()
@@ -208,7 +211,7 @@ def main(argv: list[str]) -> int:
         print("Лише для Windows")
         return 1
     if argv[:1] == ["install"]:
-        for p in install_shortcuts():
+        for p in install_shortcuts(desktop="--no-desktop" not in argv, start_menu="--no-start-menu" not in argv):
             print(p)
         return 0
     if argv[:1] == ["repair"]:

@@ -160,18 +160,67 @@ jobs:
           exit $code
           Get-Content (Join-Path $app 'sc-dmx.log') -ErrorAction SilentlyContinue | Select-Object -Last 20
 
-      - name: Повторне встановлення, коли SC DMX відкрито
+      - name: Повторне встановлення, коли SC DMX відкрито (лише ярлик у меню «Пуск»)
         shell: pwsh
         run: |
           $env:SCDMX_SETUP_AUTOTEST = '1'
           $env:SCDMX_SETUP_SHOTS = "$pwd\shots\again"
+          $env:SCDMX_SETUP_LINKS = 'start'
+          $desk = Join-Path ([Environment]::GetFolderPath('Desktop')) 'SC DMX.lnk'
+          $start = Join-Path ([Environment]::GetFolderPath('Programs')) 'SC DMX.lnk'
+          Remove-Item $desk -ErrorAction SilentlyContinue
           $p = Start-Process .\SC-DMX-Setup.exe -PassThru -Wait
           "Код виходу інсталятора: $($p.ExitCode)"
-          Get-Content "$env:TEMP\SC-DMX-install.log" -Encoding UTF8 | Select-String 'закриття|Зупиняю|закрито|Завершено'
+          Get-Content "$env:TEMP\SC-DMX-install.log" -Encoding UTF8 | Select-String 'закриття|Зупиняю|закрито|Завершено|Запуск'
           $left = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'dmxctl|sc-dmx\.pyw' }
           "Процесів SC DMX після встановлення: $(@($left).Count)"
-          if ($p.ExitCode -ne 0) { exit 1 }
+          "Ярлик на робочому столі: $(Test-Path $desk) (має бути False), у меню «Пуск»: $(Test-Path $start)"
           Copy-Item "$env:TEMP\SC-DMX-install.log" shots\install-again.log -ErrorAction SilentlyContinue
+          if ($p.ExitCode -ne 0 -or (Test-Path $desk) -or -not (Test-Path $start)) { exit 1 }
+
+      - name: Видалення лише сцен і кольорів (решта даних лишається)
+        shell: pwsh
+        run: |
+          $env:SCDMX_SETUP_AUTOTEST = '1'
+          $env:SCDMX_SETUP_SHOTS = "$pwd\shots\uninstall"
+          $env:SCDMX_UNINSTALL_PARTS = 'scenes,colors'
+          $app = Join-Path $env:LOCALAPPDATA 'SC-DMX'
+          $cfg = Join-Path $app 'config.json'
+          @{
+            output = @{ type = 'udmx' }; master = 200
+            fixtures = @(@{ id = 'f1'; name = 'Left'; address = 1; profile = 'RGB' })
+            scenes = @{ Evening = @{ fixtures = @{ f1 = @{ r = 255 } }; effect = $null } }
+            static_colors = @(@{ name = 'Red'; r = 255; g = 0; b = 0 })
+          } | ConvertTo-Json -Depth 10 | Set-Content $cfg -Encoding utf8NoBOM
+          $p = Start-Process (Join-Path $app 'Uninstall.exe') -PassThru
+          Start-Sleep -Seconds 5
+          $end = (Get-Date).AddMinutes(3)
+          while ((Get-Date) -lt $end) {
+            $busy = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'uninstall-gui\.ps1|Un_A\.exe|Au_\.exe' }
+            if (-not $busy) { break }
+            Start-Sleep -Seconds 2
+          }
+          Get-Content "$env:TEMP\SC-DMX-uninstall.log" -Encoding UTF8
+          Copy-Item "$env:TEMP\SC-DMX-uninstall.log" shots\ -ErrorAction SilentlyContinue
+          '--- залишилося в теці програми'
+          Get-ChildItem $app -Force -ErrorAction SilentlyContinue | ForEach-Object { $_.Name }
+          $ok = $true
+          if (-not (Test-Path $cfg)) { 'config.json видалено, а мав лишитися'; $ok = $false }
+          else {
+            $c = Get-Content $cfg -Raw -Encoding UTF8 | ConvertFrom-Json
+            "сцени: $($null -ne $c.scenes)  кольори: $($null -ne $c.static_colors)  прилади: $(@($c.fixtures).Count)  вихід: $($c.output.type)"
+            if ($null -ne $c.scenes -or $null -ne $c.static_colors -or @($c.fixtures).Count -ne 1 -or $c.output.type -ne 'udmx') { $ok = $false }
+          }
+          foreach ($f in 'Uninstall.exe', '.venv', 'dmxctl', 'sc-dmx.pyw') {
+            if (Test-Path (Join-Path $app $f)) { "Не видалено: $f"; $ok = $false }
+          }
+          foreach ($d in [Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs')) {
+            if (Test-Path (Join-Path $d 'SC DMX.lnk')) { "Ярлик не видалено: $d"; $ok = $false }
+          }
+          $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\SC-DMX'
+          if (Test-Path $key) { 'Запис у «Програми та компоненти» не видалено'; $ok = $false }
+          if (-not $ok) { exit 1 }
+          'Видалення: усе як треба'
 
       - name: Артефакти
         if: always()

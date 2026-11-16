@@ -6,7 +6,10 @@
 ; Інсталятор містить усю програму. Він розпаковує її в тимчасову теку й відкриває вікно встановлення
 ; (installer/setup-gui.ps1), яке у фоні запускає install.ps1: той знаходить або встановлює Python,
 ; копіює програму в %LOCALAPPDATA%\SC-DMX (налаштування зберігаються), ставить залежності й
-; створює ярлики. Консоль не показується. Права адміністратора не потрібні.
+; створює вибрані ярлики. Консоль не показується. Права адміністратора не потрібні.
+;
+; Uninstall.exe так само відкриває вікно видалення (installer/uninstall-gui.ps1): лише програма або
+; програма разом із вибраними даними. Uninstall.exe /S — тихе повне видалення без вікна.
 
 Unicode true
 SetCompressor /SOLID lzma
@@ -46,13 +49,21 @@ VIAddVersionKey /LANG=1058 "LegalCopyright" "${APP}"
 !define MUI_UNICON "${SRC}\dmxctl\static\icon.ico"
 
 ; Власних сторінок у інсталятора немає: він мовчки розпаковує програму й відкриває вікно
-; встановлення в стилі SC DMX (installer/setup-gui.ps1). Сторінки NSIS — лише для видалення.
+; встановлення в стилі SC DMX (installer/setup-gui.ps1). Видалення теж має своє вікно
+; (installer/uninstall-gui.ps1, див. un.onInit); сторінка NSIS лишається тільки для тихого режиму /S.
 SilentInstall silent
 
-!insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
 
 !insertmacro MUI_LANGUAGE "Ukrainian"
+
+; 64-бітний PowerShell на 64-бітній Windows (інсталятор 32-бітний) — у $1
+!macro FindPowerShell
+  StrCpy $1 "$WINDIR\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
+  ${IfNot} ${FileExists} "$1"
+    StrCpy $1 "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe"
+  ${EndIf}
+!macroend
 
 Section "SC DMX"
   InitPluginsDir
@@ -60,12 +71,9 @@ Section "SC DMX"
   File /r /x ".git" /x "__pycache__" /x ".venv" /x "installer" "${SRC}\*.*"
   SetOutPath "$PLUGINSDIR\app\installer"
   File "${SRC}\installer\setup-gui.ps1"
+  File "${SRC}\installer\ui-common.ps1"
 
-  ; інсталятор 32-бітний: на 64-бітній Windows беремо 64-бітний PowerShell
-  StrCpy $1 "$WINDIR\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
-  ${IfNot} ${FileExists} "$1"
-    StrCpy $1 "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe"
-  ${EndIf}
+  !insertmacro FindPowerShell
   ; nsExec — без вікна консолі; вікно встановлення показує сам setup-gui.ps1
   nsExec::Exec '"$1" -NoProfile -STA -ExecutionPolicy Bypass -File "$PLUGINSDIR\app\installer\setup-gui.ps1" -Source "$PLUGINSDIR\app" -Version "${VERSION}"'
   Pop $0
@@ -93,9 +101,37 @@ Section "SC DMX"
   WriteRegDWORD HKCU "${UNINST_KEY}" "NoRepair" 1
 SectionEnd
 
+; Вікно видалення. Uninstall.exe уже працює з копії в %TEMP%, тож тека програми не зайнята.
+; Вікно саме видаляє ярлики й файли (дані — за вибором), тут лишається прибрати запис у
+; «Програми та компоненти». Код вікна: 0 — видалено, 1 — скасовано, 3 — вікно не відкрилося.
 Function un.onInit
-  MessageBox MB_YESNO|MB_ICONQUESTION "Видалити SC DMX разом із налаштуваннями, приладами й сценами?$\r$\nЩоб зберегти сцени, спершу збережіть їх у файли (меню сцени → «Зберегти у файл»)." /SD IDYES IDYES +2
-  Abort
+  ${If} ${Silent}
+    Return   ; /S — розділ Uninstall нижче: повне видалення без запитань
+  ${EndIf}
+  InitPluginsDir
+  SetOutPath "$PLUGINSDIR\ui"
+  File "${SRC}\installer\uninstall-gui.ps1"
+  File "${SRC}\installer\ui-common.ps1"
+  File "${SRC}\dmxctl\static\icon.ico"
+  !insertmacro FindPowerShell
+  nsExec::Exec '"$1" -NoProfile -STA -ExecutionPolicy Bypass -File "$PLUGINSDIR\ui\uninstall-gui.ps1" -AppDir "$INSTDIR" -Version "${VERSION}" -Icon "$PLUGINSDIR\ui\icon.ico"'
+  Pop $0
+  SetOutPath "$TEMP"
+  ${If} $0 == 0
+    DeleteRegKey HKCU "${UNINST_KEY}"
+    SetErrorLevel 0
+    Quit
+  ${EndIf}
+  ${If} $0 == 3
+  ${OrIf} $0 == "error"
+    ; вікно не відкрилося — запитуємо звичайним повідомленням і видаляємо все, як раніше
+    MessageBox MB_YESNO|MB_ICONQUESTION "Видалити SC DMX разом із налаштуваннями, приладами й сценами?$\r$\nЩоб зберегти сцени, спершу збережіть їх у файли (меню сцени → «Зберегти у файл…»)." IDYES +2
+    Quit
+    SetSilent silent   ; далі — розділ Uninstall без сторінок
+    Return
+  ${EndIf}
+  SetErrorLevel 1   ; видалення скасовано
+  Quit
 FunctionEnd
 
 Section "Uninstall"

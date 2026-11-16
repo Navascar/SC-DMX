@@ -1,14 +1,17 @@
 ﻿# SC DMX — вікно встановлення (запускає SC-DMX-Setup.exe, без консолі).
 #
-# Вікно в стилі програми (темне, кольори й шрифт — як в інтерфейсі). Саме встановлення робить
-# install.ps1 -Progress у фоновому процесі без вікна, а сюди передає хід рядками @@STEP/@@LOG/...
+# Вікно в стилі програми (темне, кольори й шрифт — як в інтерфейсі; спільне з вікном видалення —
+# у ui-common.ps1). Перед встановленням можна вибрати ярлики: на робочому столі й у меню «Пуск».
+# Саме встановлення робить install.ps1 -Progress у фоновому процесі без вікна, а сюди передає хід
+# рядками @@STEP/@@LOG/...
 #
 # Код виходу: 0 — програму встановлено, 1 — ні (скасовано або помилка встановлення),
 # 3 — саме вікно не вдалося відкрити (тоді SC-DMX-Setup.exe показує повідомлення з журналом).
 # Для перевірки в CI: SCDMX_SETUP_AUTOTEST=1 — встановлення починається само, вікно закривається саме,
-# а знімки вікна зберігаються в теку SCDMX_SETUP_SHOTS.
+# а знімки вікна зберігаються в теку SCDMX_SETUP_SHOTS. SCDMX_SETUP_LINKS — які ярлики створити
+# в автоперевірці: «desktop,start» (типово), «start», «none»…
 
-param([string]$Source = $PSScriptRoot, [string]$Version = '')
+param([string]$Source = (Split-Path $PSScriptRoot), [string]$Version = '')
 
 $ErrorActionPreference = 'Stop'
 $LogPath = Join-Path $env:TEMP 'SC-DMX-install.log'
@@ -16,298 +19,60 @@ $AutoTest = $env:SCDMX_SETUP_AUTOTEST -eq '1'
 $Shots = $env:SCDMX_SETUP_SHOTS
 $script:Installed = $false
 
-function Write-Log($text) {
-    try { Add-Content -LiteralPath $LogPath -Value ("{0:HH:mm:ss}  {1}" -f (Get-Date), $text) -Encoding UTF8 } catch { }
-}
-
 try {
+    . (Join-Path $PSScriptRoot 'ui-common.ps1')
     Set-Content -LiteralPath $LogPath -Value "SC DMX $Version — встановлення" -Encoding UTF8
-    Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
-    Add-Type -Namespace ScDmx -Name Native -MemberDefinition @'
-[DllImport("user32.dll")] public static extern bool ShowWindow(System.IntPtr hWnd, int nCmdShow);
-[DllImport("user32.dll")] public static extern bool SetForegroundWindow(System.IntPtr hWnd);
-[DllImport("user32.dll")] public static extern bool IsWindowVisible(System.IntPtr hWnd);
-[DllImport("shell32.dll", CharSet = CharSet.Unicode)] public static extern int SetCurrentProcessExplicitAppUserModelID(string id);
-'@
-    # своя кнопка на панелі задач, а не «Windows PowerShell»
-    [void][ScDmx.Native]::SetCurrentProcessExplicitAppUserModelID('SCDMX.Setup')
+    Initialize-ScDmxUi 'SCDMX.Setup'
 } catch {
-    Write-Log "Не вдалося підготувати вікно: $_"
+    try { Add-Content -LiteralPath $LogPath -Value "Не вдалося підготувати вікно: $_" -Encoding UTF8 } catch { }
     exit 3
 }
 
 # ------------------------------------------------------------------- вигляд ---
-[xml]$xaml = @'
-<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Встановлення SC DMX" Width="600" SizeToContent="Height"
-        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
-        ResizeMode="NoResize" WindowStartupLocation="CenterScreen" ShowInTaskbar="True"
-        FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="14" Foreground="#E6E8EE"
-        TextOptions.TextFormattingMode="Display" UseLayoutRounding="True">
-  <Window.Resources>
-    <SolidColorBrush x:Key="Surface" Color="#171A21"/>
-    <SolidColorBrush x:Key="Raised" Color="#1F232C"/>
-    <SolidColorBrush x:Key="Line" Color="#2B303B"/>
-    <SolidColorBrush x:Key="LineStrong" Color="#3D4452"/>
-    <SolidColorBrush x:Key="Muted" Color="#9AA1AE"/>
-    <SolidColorBrush x:Key="Accent" Color="#4F8CFF"/>
-    <Style x:Key="Btn" TargetType="Button">
-      <Setter Property="Foreground" Value="#E6E8EE"/>
-      <Setter Property="Background" Value="{StaticResource Raised}"/>
-      <Setter Property="BorderBrush" Value="{StaticResource Line}"/>
-      <Setter Property="FontWeight" Value="Medium"/>
-      <Setter Property="Height" Value="34"/>
-      <Setter Property="Padding" Value="14,0"/>
-      <Setter Property="Margin" Value="8,0,0,0"/>
-      <Setter Property="Cursor" Value="Hand"/>
-      <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="Button">
-            <Border x:Name="b" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                    BorderThickness="1" CornerRadius="10" Padding="{TemplateBinding Padding}">
-              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-            </Border>
-            <ControlTemplate.Triggers>
-              <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="b" Property="BorderBrush" Value="{StaticResource LineStrong}"/>
-              </Trigger>
-              <Trigger Property="IsKeyboardFocused" Value="True">
-                <Setter TargetName="b" Property="BorderBrush" Value="{StaticResource Accent}"/>
-              </Trigger>
-              <Trigger Property="IsEnabled" Value="False">
-                <Setter TargetName="b" Property="Opacity" Value="0.5"/>
-              </Trigger>
-            </ControlTemplate.Triggers>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-    </Style>
-    <Style x:Key="Primary" TargetType="Button" BasedOn="{StaticResource Btn}">
-      <Setter Property="Background" Value="{StaticResource Accent}"/>
-      <Setter Property="BorderBrush" Value="{StaticResource Accent}"/>
-      <Setter Property="Foreground" Value="White"/>
-      <Style.Triggers>
-        <Trigger Property="IsMouseOver" Value="True">
-          <Setter Property="Background" Value="#3F7CF0"/>
-        </Trigger>
-      </Style.Triggers>
-    </Style>
-    <Style x:Key="Close" TargetType="Button">
-      <Setter Property="Width" Value="32"/>
-      <Setter Property="Height" Value="32"/>
-      <Setter Property="Cursor" Value="Hand"/>
-      <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="Button">
-            <Border x:Name="b" Background="Transparent" CornerRadius="8">
-              <Path Data="M0,0 L10,10 M10,0 L0,10" Stroke="#9AA1AE" StrokeThickness="1.6"
-                    StrokeStartLineCap="Round" StrokeEndLineCap="Round"
-                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
-            </Border>
-            <ControlTemplate.Triggers>
-              <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="b" Property="Background" Value="#1F232C"/>
-              </Trigger>
-            </ControlTemplate.Triggers>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-    </Style>
-    <Style x:Key="Min" TargetType="Button" BasedOn="{StaticResource Close}">
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="Button">
-            <Border x:Name="b" Background="Transparent" CornerRadius="8">
-              <Path Data="M0,0 L10,0" Stroke="#9AA1AE" StrokeThickness="1.6"
-                    StrokeStartLineCap="Round" StrokeEndLineCap="Round"
-                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
-            </Border>
-            <ControlTemplate.Triggers>
-              <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="b" Property="Background" Value="#1F232C"/>
-              </Trigger>
-            </ControlTemplate.Triggers>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-    </Style>
-    <Style TargetType="ProgressBar">
-      <Setter Property="Height" Value="6"/>
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="ProgressBar">
-            <Grid>
-              <Border Background="#2B303B" CornerRadius="3"/>
-              <Border x:Name="PART_Track"/>
-              <Border x:Name="PART_Indicator" HorizontalAlignment="Left" Background="{StaticResource Accent}" CornerRadius="3"/>
-            </Grid>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-    </Style>
-  </Window.Resources>
-
-  <Border Margin="16" Background="{StaticResource Surface}" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="14">
-    <Border.Effect>
-      <DropShadowEffect BlurRadius="24" ShadowDepth="4" Opacity="0.45" Color="Black"/>
-    </Border.Effect>
-    <Grid>
-      <Grid.RowDefinitions>
-        <RowDefinition Height="Auto"/>
-        <RowDefinition Height="Auto"/>
-        <RowDefinition Height="Auto"/>
-      </Grid.RowDefinitions>
-
-      <!-- верхня панель: перетягування вікна -->
-      <Grid x:Name="TitleBar" Grid.Row="0" Background="Transparent" Margin="20,14,12,0">
-        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-          <Grid Width="28" Height="28">
-            <Border Background="#0F1115" CornerRadius="7"/>
-            <Ellipse Width="13" Height="13" Fill="#FF3B3B" Opacity="0.9" Margin="-6,-6,0,0"/>
-            <Ellipse Width="13" Height="13" Fill="#3BFF6A" Opacity="0.75" Margin="6,-6,0,0"/>
-            <Ellipse Width="13" Height="13" Fill="#3B7BFF" Opacity="0.8" Margin="0,6,0,0"/>
-          </Grid>
-          <TextBlock Text="SC DMX" FontWeight="SemiBold" FontSize="16" Margin="10,0,0,0" VerticalAlignment="Center"/>
-          <TextBlock x:Name="VersionText" Foreground="{StaticResource Muted}" FontSize="12" Margin="8,2,0,0" VerticalAlignment="Center"/>
-        </StackPanel>
-        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-          <Button x:Name="MinBtn" Style="{StaticResource Min}" ToolTip="Згорнути" Margin="0,0,4,0"/>
-          <Button x:Name="CloseX" Style="{StaticResource Close}" ToolTip="Закрити"/>
-        </StackPanel>
-      </Grid>
-
+$Body = @'
       <StackPanel Grid.Row="1" Margin="24,18,24,0">
         <TextBlock x:Name="Heading" FontSize="20" FontWeight="SemiBold" Text="Встановлення SC DMX"/>
         <TextBlock x:Name="Sub" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,6,0,0" TextWrapping="Wrap"
                    Text="Потрібне підключення до інтернету."/>
-        <StackPanel x:Name="Steps" Margin="0,18,0,0"/>
-        <ProgressBar x:Name="Bar" Minimum="0" Maximum="100" Value="0" Margin="0,14,0,0"/>
-        <TextBlock x:Name="Status" Foreground="{StaticResource Muted}" FontSize="11" Margin="0,8,0,0"
-                   FontFamily="Cascadia Mono, Consolas" TextTrimming="CharacterEllipsis" Text=" "/>
+        <StackPanel x:Name="Options" Margin="0,20,0,0">
+          <CheckBox x:Name="DesktopBox" Style="{StaticResource Check}" IsChecked="True" Content="Створити ярлик на робочому столі"/>
+          <CheckBox x:Name="StartBox" Style="{StaticResource Check}" IsChecked="True" Margin="0,12,0,0" Content="Додати ярлик у меню «Пуск»"/>
+        </StackPanel>
+        <StackPanel x:Name="Progress" Visibility="Collapsed">
+          <StackPanel x:Name="Steps" Margin="0,18,0,0"/>
+          <ProgressBar x:Name="Bar" Minimum="0" Maximum="100" Value="0" Margin="0,14,0,0"/>
+          <TextBlock x:Name="Status" Foreground="{StaticResource Muted}" FontSize="11" Margin="0,8,0,0"
+                     FontFamily="Cascadia Mono, Consolas" TextTrimming="CharacterEllipsis" Text=" "/>
+        </StackPanel>
         <Border x:Name="Note" Visibility="Collapsed" Margin="0,14,0,0" Padding="12,10" CornerRadius="10" BorderThickness="1">
           <TextBlock x:Name="NoteText" TextWrapping="Wrap" FontSize="12"/>
         </Border>
       </StackPanel>
-
-      <Border Grid.Row="2" Margin="0,22,0,0" Padding="24,14" BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0">
-        <DockPanel LastChildFill="False">
-          <Button x:Name="LogBtn" DockPanel.Dock="Left" Style="{StaticResource Btn}" Margin="0" Content="Журнал" Visibility="Collapsed"/>
-          <Button x:Name="MainBtn" DockPanel.Dock="Right" Style="{StaticResource Primary}" Content="Встановити" IsDefault="True"/>
-          <Button x:Name="SecondBtn" DockPanel.Dock="Right" Style="{StaticResource Btn}" Content="Скасувати"/>
-        </DockPanel>
-      </Border>
-    </Grid>
-  </Border>
-</Window>
 '@
 
 try {
-    $win = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xaml))
+    $win = New-ScDmxWindow 'Встановлення SC DMX' $Body 'Встановити'
 } catch {
     Write-Log "Не вдалося створити вікно: $_"
     exit 3
 }
-$ui = @{}
-foreach ($n in 'TitleBar', 'MinBtn', 'CloseX', 'VersionText', 'Heading', 'Sub', 'Steps', 'Bar', 'Status', 'Note', 'NoteText',
-               'LogBtn', 'MainBtn', 'SecondBtn') { $ui[$n] = $win.FindName($n) }
-$icon = Join-Path $Source 'dmxctl\static\icon.ico'
-if (Test-Path $icon) { try { $win.Icon = [Windows.Media.Imaging.BitmapFrame]::Create([Uri]$icon) } catch { } }
+Set-WindowIcon (Join-Path $Source 'dmxctl\static\icon.ico')
 if ($Version) { $ui.VersionText.Text = $Version }
 
-function Brush($hex) { New-Object Windows.Media.SolidColorBrush ([Windows.Media.ColorConverter]::ConvertFromString($hex)) }
+if ($AutoTest -and $env:SCDMX_SETUP_LINKS) {
+    $ui.DesktopBox.IsChecked = $env:SCDMX_SETUP_LINKS -match 'desktop'
+    $ui.StartBox.IsChecked = $env:SCDMX_SETUP_LINKS -match 'start'
+}
 
 # ------------------------------------------------------------------- кроки ---
 # id, назва, частка смуги прогресу на початку кроку
-$StepDefs = @(
+New-Steps $ui.Steps @(
     @('python', 'Python', 2),
     @('files', 'Файли програми', 10),
     @('venv', 'Середовище Python', 18),
     @('deps', 'Компоненти', 26),
     @('shortcuts', 'Ярлики', 92)
 )
-$StepUi = @{}
-foreach ($d in $StepDefs) {
-    $row = New-Object Windows.Controls.Grid
-    $row.Margin = '0,0,0,10'
-    $c0 = New-Object Windows.Controls.ColumnDefinition; $c0.Width = '26'
-    $c1 = New-Object Windows.Controls.ColumnDefinition
-    $row.ColumnDefinitions.Add($c0); $row.ColumnDefinitions.Add($c1)
-    $mark = New-Object Windows.Controls.Grid
-    $mark.Width = 16; $mark.Height = 16; $mark.HorizontalAlignment = 'Left'
-    $ring = New-Object Windows.Shapes.Ellipse
-    $ring.StrokeThickness = 1.5; $ring.Stroke = Brush '#3D4452'
-    $glyph = New-Object Windows.Shapes.Path
-    $glyph.StrokeThickness = 1.8; $glyph.Stroke = Brush '#FFFFFF'
-    $glyph.StrokeStartLineCap = 'Round'; $glyph.StrokeEndLineCap = 'Round'; $glyph.StrokeLineJoin = 'Round'
-    $glyph.HorizontalAlignment = 'Center'; $glyph.VerticalAlignment = 'Center'
-    $mark.Children.Add($ring) | Out-Null; $mark.Children.Add($glyph) | Out-Null
-    $label = New-Object Windows.Controls.TextBlock
-    $label.Text = $d[1]; $label.Foreground = Brush '#9AA1AE'
-    [Windows.Controls.Grid]::SetColumn($label, 1)
-    $row.Children.Add($mark) | Out-Null; $row.Children.Add($label) | Out-Null
-    $ui.Steps.Children.Add($row) | Out-Null
-    $StepUi[$d[0]] = @{ Ring = $ring; Glyph = $glyph; Label = $label; Start = $d[2]; Mark = $mark; State = 'wait' }
-}
-$Order = $StepDefs | ForEach-Object { $_[0] }
-
-$Spin = New-Object Windows.Media.Animation.DoubleAnimation(0, 360, [TimeSpan]::FromSeconds(0.9))
-$Spin.RepeatBehavior = [Windows.Media.Animation.RepeatBehavior]::Forever
-
-function Set-StepState($id, $state) {
-    $s = $StepUi[$id]
-    if (-not $s) { return }
-    $s.State = $state
-    $s.Mark.RenderTransform = $null
-    switch ($state) {
-        'active' {
-            $s.Ring.Stroke = Brush '#4F8CFF'; $s.Ring.Fill = $null
-            $s.Ring.StrokeDashArray = New-Object Windows.Media.DoubleCollection (,[double[]](6, 3))
-            $rt = New-Object Windows.Media.RotateTransform; $s.Mark.RenderTransformOrigin = '0.5,0.5'
-            $s.Mark.RenderTransform = $rt
-            $rt.BeginAnimation([Windows.Media.RotateTransform]::AngleProperty, $Spin)
-            $s.Glyph.Data = $null; $s.Label.Foreground = Brush '#E6E8EE'
-        }
-        'done' {
-            $s.Ring.StrokeDashArray = $null; $s.Ring.Stroke = Brush '#4F8CFF'; $s.Ring.Fill = Brush '#4F8CFF'
-            $s.Glyph.Data = [Windows.Media.Geometry]::Parse('M0,3.5 L2.8,6.2 L8,0.6'); $s.Glyph.Stroke = Brush '#FFFFFF'
-            $s.Label.Foreground = Brush '#E6E8EE'
-        }
-        'error' {
-            $s.Ring.StrokeDashArray = $null; $s.Ring.Stroke = Brush '#EF5B60'; $s.Ring.Fill = Brush '#EF5B60'
-            $s.Glyph.Data = [Windows.Media.Geometry]::Parse('M0,0 L6,6 M6,0 L0,6'); $s.Glyph.Stroke = Brush '#FFFFFF'
-            $s.Label.Foreground = Brush '#E6E8EE'
-        }
-        default {
-            $s.Ring.StrokeDashArray = $null; $s.Ring.Stroke = Brush '#3D4452'; $s.Ring.Fill = $null
-            $s.Glyph.Data = $null; $s.Label.Foreground = Brush '#9AA1AE'
-        }
-    }
-}
-
-function Show-Note($text, $kind) {
-    $colors = @{ warn = @('#F5A524', '#2A2416'); error = @('#EF5B60', '#2A1A1C'); info = @('#4F8CFF', '#17223A') }
-    $c = $colors[$kind]
-    $ui.Note.BorderBrush = Brush $c[0]; $ui.Note.Background = Brush $c[1]
-    $ui.NoteText.Text = $text; $ui.NoteText.Foreground = Brush '#E6E8EE'
-    $ui.Note.Visibility = 'Visible'
-}
-
-function Save-Shot($name) {
-    if (-not $Shots) { return }
-    try {
-        New-Item -ItemType Directory -Force $Shots | Out-Null
-        $win.UpdateLayout()
-        $w = [int]($win.ActualWidth * 2); $h = [int]($win.ActualHeight * 2)
-        $bmp = [Windows.Media.Imaging.RenderTargetBitmap]::new($w, $h, 192, 192, [Windows.Media.PixelFormats]::Pbgra32)
-        $bmp.Render($win)
-        $enc = New-Object Windows.Media.Imaging.PngBitmapEncoder
-        $enc.Frames.Add([Windows.Media.Imaging.BitmapFrame]::Create($bmp))
-        $fs = [IO.File]::Create((Join-Path $Shots "$name.png")); $enc.Save($fs); $fs.Close()
-    } catch { Write-Log "Знімок $name не вдався: $_" }
-}
 
 # --------------------------------------------------------------- встановлення ---
 $script:Proc = $null
@@ -318,81 +83,10 @@ $script:DepLines = 0
 $script:Failed = $false
 $script:Done = $false
 
-# Запущена SC DMX: її процеси (python/pythonw з dmxctl або sc-dmx.pyw) або сама програма на порту 8080.
-# Інший застосунок на порту 8080 — це не SC DMX, встановленню він не заважає; тоді SC DMX працює
-# на одному з наступних портів (8081…8099).
-function Get-AppProcs {
-    try {
-        @(Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" -ErrorAction Stop |
-            Where-Object { $_.CommandLine -match 'dmxctl|sc-dmx\.pyw' })
-    } catch { @() }
-}
-function Test-ScDmxServer($port) {
-    try {
-        $r = [Net.WebRequest]::Create("http://127.0.0.1:$port/")
-        $r.Timeout = 1500
-        $r.Proxy = $null
-        $resp = $r.GetResponse()
-        $text = (New-Object IO.StreamReader ($resp.GetResponseStream())).ReadToEnd()
-        $resp.Close()
-        return $text -match '<title>SC DMX</title>'
-    } catch { return $false }
-}
-function Find-AppPort {
-    try {
-        $listening = [Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties().GetActiveTcpListeners() |
-            ForEach-Object { $_.Port } | Where-Object { $_ -ge 8080 -and $_ -le 8099 } | Sort-Object -Unique
-    } catch { $listening = 8080 }
-    foreach ($p in $listening) { if (Test-ScDmxServer $p) { return $p } }
-    return $null
-}
-function App-Running { return ((Get-AppProcs).Count -gt 0) -or ($null -ne (Find-AppPort)) }
-
-function Pump { $win.Dispatcher.Invoke([Action]{ }, [Windows.Threading.DispatcherPriority]::Background) }
-
-# Закриває SC DMX так само, як кнопка закриття у вікні програми (світло гасне), а що лишилося — зупиняє
-function Close-App {
-    Show-Note 'Закриваю SC DMX…' 'info'
-    $ui.MainBtn.IsEnabled = $false
-    Pump
-    try {
-        $ws = New-Object Net.WebSockets.ClientWebSocket
-        $port = Find-AppPort
-        if ($port -and $ws.ConnectAsync([Uri]"ws://127.0.0.1:$port/ws", [Threading.CancellationToken]::None).Wait(2000)) {
-            $bytes = [Text.Encoding]::UTF8.GetBytes('{"cmd":"quit"}')
-            $seg = New-Object 'ArraySegment[byte]' -ArgumentList (, $bytes)
-            [void]$ws.SendAsync($seg, [Net.WebSockets.WebSocketMessageType]::Text, $true,
-                                [Threading.CancellationToken]::None).Wait(2000)
-            Write-Log 'Програмі надіслано команду закриття'
-        }
-        $ws.Dispose()
-    } catch { Write-Log "Команда закриття не дійшла: $_" }
-    $end = (Get-Date).AddSeconds(12)
-    while ((Get-Date) -lt $end -and (App-Running)) { Start-Sleep -Milliseconds 300; Pump }
-    foreach ($p in Get-AppProcs) {
-        Write-Log "Зупиняю процес $($p.ProcessId): $($p.CommandLine)"
-        try { Stop-Process -Id $p.ProcessId -Force -ErrorAction Stop } catch { }
-    }
-    Start-Sleep -Milliseconds 600
-    $ui.MainBtn.IsEnabled = $true
-    $ok = -not (App-Running)
-    Write-Log ("SC DMX закрито: " + $ok)
-    return $ok
-}
-
 function Show-RunningNote {
     Show-Note 'SC DMX відкрито. Її буде закрито, прожектори згаснуть.' 'warn'
     $ui.MainBtn.Content = 'Закрити SC DMX і встановити'
     $script:CloseMode = $true
-}
-
-function Enter-Step($id) {
-    $i = [array]::IndexOf($Order, $id)
-    if ($i -lt 0) { return }
-    for ($k = 0; $k -lt $i; $k++) { if ($StepUi[$Order[$k]].State -in 'wait', 'active') { Set-StepState $Order[$k] 'done' } }
-    if ($StepUi[$id].State -ne 'active') { Set-StepState $id 'active' }
-    $script:CurStep = $id
-    $ui.Bar.Value = [Math]::Max($ui.Bar.Value, $StepUi[$id].Start)
 }
 
 function Handle-Line($line) {
@@ -432,6 +126,12 @@ function Start-Install {
     }
     $script:CloseMode = $false
     $ui.Note.Visibility = 'Collapsed'
+    # вибір ярликів — лише до першої спроби; повторна спроба бере той самий вибір
+    $ui.Options.Visibility = 'Collapsed'
+    $ui.Progress.Visibility = 'Visible'
+    $desktop = [bool]$ui.DesktopBox.IsChecked
+    $start = [bool]$ui.StartBox.IsChecked
+    if (-not $desktop -and -not $start) { $StepUi['shortcuts'].Row.Visibility = 'Collapsed' }
     foreach ($id in $Order) { Set-StepState $id 'wait' }
     $script:Failed = $false; $script:Done = $false; $script:DepLines = 0; $script:CurStep = $null
     $ui.Bar.Value = 0
@@ -444,6 +144,8 @@ function Start-Install {
     $psi = New-Object Diagnostics.ProcessStartInfo
     $psi.FileName = (Get-Process -Id $PID).Path
     $psi.Arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + (Join-Path $Source 'install.ps1') + '" -Progress -NoLaunch'
+    if (-not $desktop) { $psi.Arguments += ' -NoDesktop' }
+    if (-not $start) { $psi.Arguments += ' -NoStartMenu' }
     $psi.UseShellExecute = $false
     $psi.CreateNoWindow = $true
     $psi.RedirectStandardOutput = $true
@@ -464,7 +166,9 @@ function Finish-Install {
     Write-Log "Завершено з кодом $code"
     $ui.SecondBtn.Visibility = 'Visible'
     if ($code -eq 0 -and $script:Done -and -not $script:Failed) {
-        foreach ($id in $Order) { if ($StepUi[$id].State -in 'wait', 'active') { Set-StepState $id 'done' } }
+        foreach ($id in $Order) {
+            if (($StepUi[$id].State -in 'wait', 'active') -and $StepUi[$id].Row.Visibility -eq 'Visible') { Set-StepState $id 'done' }
+        }
         $ui.Bar.Value = 100
         $script:Installed = $true
         $ui.Heading.Text = 'SC DMX встановлено'
@@ -520,20 +224,18 @@ $timer.Add_Tick({
 })
 
 function Launch-App {
-    $lnk = Join-Path ([Environment]::GetFolderPath('Programs')) 'SC DMX.lnk'
+    # через ярлик — тоді вікно одразу з ідентифікатором SC DMX на панелі задач
+    $lnk = @([Environment]::GetFolderPath('Programs'), [Environment]::GetFolderPath('Desktop')) |
+        ForEach-Object { Join-Path $_ 'SC DMX.lnk' } | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
     $app = Join-Path $env:LOCALAPPDATA 'SC-DMX'
     try {
-        if (Test-Path $lnk) { Start-Process -FilePath $lnk }
+        if ($lnk) { Start-Process -FilePath $lnk }
         else { Start-Process -FilePath (Join-Path $app '.venv\Scripts\pythonw.exe') -ArgumentList ('"' + (Join-Path $app 'sc-dmx.pyw') + '"') -WorkingDirectory $app }
     } catch { Write-Log "Не вдалося запустити: $_" }
 }
 
 # ------------------------------------------------------------------- події ---
-$ui.TitleBar.Add_MouseLeftButtonDown({ try { $win.DragMove() } catch { } })
-$ui.MinBtn.Add_Click({ $win.WindowState = 'Minimized' })
-$ui.CloseX.Add_Click({ $win.Close() })
 $ui.SecondBtn.Add_Click({ $win.Close() })
-$ui.LogBtn.Add_Click({ try { Start-Process -FilePath 'notepad.exe' -ArgumentList "`"$LogPath`"" } catch { } })
 $ui.MainBtn.Add_Click({
     if ($script:Installed) { Launch-App; $win.Close() } else { Start-Install }
 })
@@ -546,28 +248,14 @@ $win.Add_Closing({
         Stop-Install
     }
 })
-# SC-DMX-Setup.exe запускає цей процес прихованим (без консолі). Windows застосовує «приховано»
-# до першого показу вікна, тож перший виклик ShowWindow «витрачаємо» до показу, а потім показуємо явно.
-$win.Add_SourceInitialized({
-    $h = (New-Object Windows.Interop.WindowInteropHelper $win).Handle
-    [void][ScDmx.Native]::ShowWindow($h, 0)
-})
-$win.Add_ContentRendered({
-    $h = (New-Object Windows.Interop.WindowInteropHelper $win).Handle
-    [void][ScDmx.Native]::ShowWindow($h, 5)
-    [void][ScDmx.Native]::SetForegroundWindow($h)
-    $win.Activate() | Out-Null
-    Write-Log ("Вікно видиме: " + [ScDmx.Native]::IsWindowVisible($h))
-    if (-not $AutoTest -and -not $script:Checked) {
-        $script:Checked = $true
-        if (App-Running) { Show-RunningNote }
-    }
-    if ($AutoTest -and -not $script:Started) {
-        $script:Started = $true
+Register-WindowChrome {
+    if ($AutoTest) {
         Save-Shot '1-welcome'
         Start-Install
+    } elseif (App-Running) {
+        Show-RunningNote
     }
-})
+}
 
 try {
     [void]$win.ShowDialog()

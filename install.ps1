@@ -9,11 +9,13 @@
 # встановлює залежності, створює ярлики «SC DMX» на робочому столі та в меню «Пуск» і запускає програму.
 # Повторний запуск безпечний: налаштування (config.json) зберігаються.
 #
-# -NoLaunch  — не запускати програму наприкінці.
-# -Progress  — режим для вікна встановлення (installer/setup-gui.ps1): без запитань і консолі,
-#              хід встановлення — рядками @@STEP|крок|текст, @@LOG|текст, @@ERROR|текст, @@DONE.
+# -NoLaunch     — не запускати програму наприкінці.
+# -NoDesktop    — без ярлика на робочому столі.
+# -NoStartMenu  — без ярлика в меню «Пуск».
+# -Progress     — режим для вікна встановлення (installer/setup-gui.ps1): без запитань і консолі,
+#                 хід встановлення — рядками @@STEP|крок|текст, @@LOG|текст, @@ERROR|текст, @@DONE.
 
-param([switch]$NoLaunch, [switch]$Progress)
+param([switch]$NoLaunch, [switch]$Progress, [switch]$NoDesktop, [switch]$NoStartMenu)
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -142,21 +144,29 @@ if ($code -ne 0) { Fail 'Не вдалося встановити компоне
 
 # --------------------------------------------------------------- ярлики ---
 # Ярлики з ідентифікатором застосунку: на панелі задач — «SC DMX» з іконкою програми, а не «Python»
-Step 'shortcuts' 'Створення ярликів'
-Push-Location $AppDir
-$code = Run $VenvPy @('-m', 'dmxctl.winshell', 'install')
-Pop-Location
-if ($code -ne 0) {
-    Log 'Ярлики — запасним способом'
-    $shell = New-Object -ComObject WScript.Shell
-    foreach ($dir in @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs'))) {
-        $lnk = $shell.CreateShortcut((Join-Path $dir 'SC DMX.lnk'))
-        $lnk.TargetPath = $Pyw
-        $lnk.Arguments = '"' + (Join-Path $AppDir 'sc-dmx.pyw') + '"'
-        $lnk.WorkingDirectory = $AppDir
-        $lnk.IconLocation = Join-Path $AppDir 'dmxctl\static\icon.ico'
-        $lnk.Description = 'SC DMX — керування RGB-прожекторами'
-        $lnk.Save()
+$LinkDirs = @()
+if (-not $NoDesktop) { $LinkDirs += [Environment]::GetFolderPath('Desktop') }
+if (-not $NoStartMenu) { $LinkDirs += [Environment]::GetFolderPath('Programs') }
+if ($LinkDirs.Count) {
+    Step 'shortcuts' 'Створення ярликів'
+    $linkArgs = @('-m', 'dmxctl.winshell', 'install')
+    if ($NoDesktop) { $linkArgs += '--no-desktop' }
+    if ($NoStartMenu) { $linkArgs += '--no-start-menu' }
+    Push-Location $AppDir
+    $code = Run $VenvPy $linkArgs
+    Pop-Location
+    if ($code -ne 0) {
+        Log 'Ярлики — запасним способом'
+        $shell = New-Object -ComObject WScript.Shell
+        foreach ($dir in $LinkDirs) {
+            $lnk = $shell.CreateShortcut((Join-Path $dir 'SC DMX.lnk'))
+            $lnk.TargetPath = $Pyw
+            $lnk.Arguments = '"' + (Join-Path $AppDir 'sc-dmx.pyw') + '"'
+            $lnk.WorkingDirectory = $AppDir
+            $lnk.IconLocation = Join-Path $AppDir 'dmxctl\static\icon.ico'
+            $lnk.Description = 'SC DMX — керування RGB-прожекторами'
+            $lnk.Save()
+        }
     }
 }
 
