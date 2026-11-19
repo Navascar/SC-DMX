@@ -1,4 +1,4 @@
-"""Збирає бібліотеку приладів SC DMX з відкритих баз описів DMX-приладів.
+"""Збирає бібліотеку приладів Nitor з відкритих баз описів DMX-приладів.
 
 Джерела (локальні клони):
   * Open Fixture Library — https://github.com/OpenLightingProject/open-fixture-library (MIT)

@@ -1,8 +1,8 @@
-﻿# SC DMX — спільне для вікон встановлення (setup-gui.ps1) і видалення (uninstall-gui.ps1).
+﻿# Nitor — спільне для вікон встановлення (setup-gui.ps1) і видалення (uninstall-gui.ps1).
 #
 # Підключається через dot-source: . (Join-Path $PSScriptRoot 'ui-common.ps1')
 # Очікує в області видимості скрипта: $LogPath (журнал), $Shots (тека знімків для CI або порожньо).
-# Після New-ScDmxWindow доступні $win і $ui (елементи вікна за іменами).
+# Після New-NitorWindow доступні $win і $ui (елементи вікна за іменами).
 #
 # Кольори — з дизайн-системи програми (dmxctl/static/style.css):
 #   --surface #171A21, --raised #1F232C, --line #2B303B, --line-strong #3D4452, --text #E6E8EE,
@@ -13,21 +13,21 @@ function Write-Log($text) {
 }
 
 # WPF і функції Windows для вікна; $AppId — своя кнопка на панелі задач, а не «Windows PowerShell»
-function Initialize-ScDmxUi($AppId) {
+function Initialize-NitorUi($AppId) {
     Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
-    if (-not ('ScDmx.Native' -as [type])) {
-        Add-Type -Namespace ScDmx -Name Native -MemberDefinition @'
+    if (-not ('Nitor.Native' -as [type])) {
+        Add-Type -Namespace Nitor -Name Native -MemberDefinition @'
 [DllImport("user32.dll")] public static extern bool ShowWindow(System.IntPtr hWnd, int nCmdShow);
 [DllImport("user32.dll")] public static extern bool SetForegroundWindow(System.IntPtr hWnd);
 [DllImport("user32.dll")] public static extern bool IsWindowVisible(System.IntPtr hWnd);
 [DllImport("shell32.dll", CharSet = CharSet.Unicode)] public static extern int SetCurrentProcessExplicitAppUserModelID(string id);
 '@
     }
-    [void][ScDmx.Native]::SetCurrentProcessExplicitAppUserModelID($AppId)
+    [void][Nitor.Native]::SetCurrentProcessExplicitAppUserModelID($AppId)
 }
 
 # ------------------------------------------------------------------- вигляд ---
-$ScDmxResources = @'
+$NitorResources = @'
   <Window.Resources>
     <SolidColorBrush x:Key="Surface" Color="#171A21"/>
     <SolidColorBrush x:Key="Raised" Color="#1F232C"/>
@@ -224,9 +224,9 @@ $ScDmxResources = @'
   </Window.Resources>
 '@
 
-# Вікно SC DMX: заголовок із логотипом, $Body (вміст, Grid.Row="1") і нижня панель з кнопками
+# Вікно Nitor: заголовок із логотипом, $Body (вміст, Grid.Row="1") і нижня панель з кнопками
 # LogBtn (зліва), SecondBtn і MainBtn (справа). $MainStyle — стиль основної кнопки.
-function New-ScDmxWindow($Title, $Body, $MainText, $MainStyle = 'Primary') {
+function New-NitorWindow($Title, $Body, $MainText, $MainStyle = 'Primary') {
     $text = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -235,7 +235,7 @@ function New-ScDmxWindow($Title, $Body, $MainText, $MainStyle = 'Primary') {
         ResizeMode="NoResize" WindowStartupLocation="CenterScreen" ShowInTaskbar="True"
         FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="14" Foreground="#E6E8EE"
         TextOptions.TextFormattingMode="Display" UseLayoutRounding="True">
-$ScDmxResources
+$NitorResources
   <Border Margin="16" Background="{StaticResource Surface}" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="14">
     <Border.Effect>
       <DropShadowEffect BlurRadius="24" ShadowDepth="4" Opacity="0.45" Color="Black"/>
@@ -256,7 +256,7 @@ $ScDmxResources
             <Ellipse Width="13" Height="13" Fill="#3BFF6A" Opacity="0.75" Margin="6,-6,0,0"/>
             <Ellipse Width="13" Height="13" Fill="#3B7BFF" Opacity="0.8" Margin="0,6,0,0"/>
           </Grid>
-          <TextBlock Text="SC DMX" FontWeight="SemiBold" FontSize="16" Margin="10,0,0,0" VerticalAlignment="Center"/>
+          <TextBlock Text="Nitor" FontWeight="SemiBold" FontSize="16" Margin="10,0,0,0" VerticalAlignment="Center"/>
           <TextBlock x:Name="VersionText" Foreground="{StaticResource Muted}" FontSize="12" Margin="8,2,0,0" VerticalAlignment="Center"/>
         </StackPanel>
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
@@ -402,17 +402,17 @@ function Save-Shot($name) {
 # Дає вікну перемалюватися під час довгої роботи в цьому ж потоці
 function Pump { $win.Dispatcher.Invoke([Action]{ }, [Windows.Threading.DispatcherPriority]::Background) }
 
-# ------------------------------------------------------- запущена SC DMX ---
-# Запущена SC DMX: її процеси (python/pythonw з dmxctl або sc-dmx.pyw) або сама програма на порту 8080.
-# Інший застосунок на порту 8080 — це не SC DMX, він не заважає; тоді SC DMX працює
+# ------------------------------------------------------- запущена Nitor ---
+# Запущена Nitor: її процеси (python/pythonw з dmxctl, nitor.pyw або sc-dmx.pyw — версії до перейменування) або сама програма на порту 8080.
+# Інший застосунок на порту 8080 — це не Nitor, він не заважає; тоді Nitor працює
 # на одному з наступних портів (8081…8099).
 function Get-AppProcs {
     try {
         @(Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" -ErrorAction Stop |
-            Where-Object { $_.CommandLine -match 'dmxctl|sc-dmx\.pyw' })
+            Where-Object { $_.CommandLine -match 'dmxctl|nitor\.pyw|sc-dmx\.pyw' })
     } catch { @() }
 }
-function Test-ScDmxServer($port) {
+function Test-NitorServer($port) {
     try {
         $r = [Net.WebRequest]::Create("http://127.0.0.1:$port/")
         $r.Timeout = 1500
@@ -420,7 +420,7 @@ function Test-ScDmxServer($port) {
         $resp = $r.GetResponse()
         $text = (New-Object IO.StreamReader ($resp.GetResponseStream())).ReadToEnd()
         $resp.Close()
-        return $text -match '<title>SC DMX</title>'
+        return $text -match '<title>(Nitor|SC DMX)</title>'   # SC DMX — назва до перейменування
     } catch { return $false }
 }
 function Find-AppPort {
@@ -428,14 +428,14 @@ function Find-AppPort {
         $listening = [Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties().GetActiveTcpListeners() |
             ForEach-Object { $_.Port } | Where-Object { $_ -ge 8080 -and $_ -le 8099 } | Sort-Object -Unique
     } catch { $listening = 8080 }
-    foreach ($p in $listening) { if (Test-ScDmxServer $p) { return $p } }
+    foreach ($p in $listening) { if (Test-NitorServer $p) { return $p } }
     return $null
 }
 function App-Running { return ((Get-AppProcs).Count -gt 0) -or ($null -ne (Find-AppPort)) }
 
-# Закриває SC DMX так само, як кнопка закриття у вікні програми (світло гасне), а що лишилося — зупиняє
+# Закриває Nitor так само, як кнопка закриття у вікні програми (світло гасне), а що лишилося — зупиняє
 function Close-App {
-    Show-Note 'Закриваю SC DMX…' 'info'
+    Show-Note 'Закриваю Nitor…' 'info'
     $ui.MainBtn.IsEnabled = $false
     Pump
     try {
@@ -459,7 +459,7 @@ function Close-App {
     Start-Sleep -Milliseconds 600
     $ui.MainBtn.IsEnabled = $true
     $ok = -not (App-Running)
-    Write-Log ("SC DMX закрито: " + $ok)
+    Write-Log ("Nitor закрито: " + $ok)
     return $ok
 }
 
@@ -471,20 +471,20 @@ function Register-WindowChrome($OnShown) {
     $ui.MinBtn.Add_Click({ $win.WindowState = 'Minimized' })
     $ui.CloseX.Add_Click({ $win.Close() })
     $ui.LogBtn.Add_Click({ try { Start-Process -FilePath 'notepad.exe' -ArgumentList "`"$LogPath`"" } catch { } })
-    # SC-DMX-Setup.exe запускає цей процес прихованим (без консолі). Windows застосовує «приховано»
+    # Nitor-Setup.exe запускає цей процес прихованим (без консолі). Windows застосовує «приховано»
     # до першого показу вікна, тож перший виклик ShowWindow «витрачаємо» до показу, а потім показуємо явно.
     $win.Add_SourceInitialized({
         $h = (New-Object Windows.Interop.WindowInteropHelper $win).Handle
-        [void][ScDmx.Native]::ShowWindow($h, 0)
+        [void][Nitor.Native]::ShowWindow($h, 0)
     })
     $win.Add_ContentRendered({
         $h = (New-Object Windows.Interop.WindowInteropHelper $win).Handle
-        [void][ScDmx.Native]::ShowWindow($h, 5)
-        [void][ScDmx.Native]::SetForegroundWindow($h)
+        [void][Nitor.Native]::ShowWindow($h, 5)
+        [void][Nitor.Native]::SetForegroundWindow($h)
         $win.Activate() | Out-Null
         if (-not $script:Shown) {
             $script:Shown = $true
-            Write-Log ("Вікно видиме: " + [ScDmx.Native]::IsWindowVisible($h))
+            Write-Log ("Вікно видиме: " + [Nitor.Native]::IsWindowVisible($h))
             if ($script:OnShown) { & $script:OnShown }
         }
     })

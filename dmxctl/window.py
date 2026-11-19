@@ -1,4 +1,4 @@
-"""Власне вікно SC DMX на Qt WebEngine.
+"""Власне вікно Nitor на Qt WebEngine.
 
 Вбудований рушій Chromium з PySide6 — програма не залежить від Edge, Chrome
 чи будь-якого встановленого браузера й не потребує інтернету: інтерфейс
@@ -18,13 +18,13 @@ ICON_SVG = Path(__file__).resolve().parent / "static" / "icon.svg"
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
 BG = "#0f1115"                       # фон інтерфейсу (style.css: --bg) — без білого спалаху
 _WINDOW_GUARD = None                 # м'ютекс «вікно вже відкрите» (Windows)
-CLOSE_SIGNAL = "__SCDMX_CLOSE__"     # заголовок сторінки, яким інтерфейс просить закрити вікно
-LOG = Path(__file__).resolve().parent.parent / "sc-dmx-window.log"
+CLOSE_SIGNAL = "__NITOR_CLOSE__"     # заголовок сторінки, яким інтерфейс просить закрити вікно
+LOG = Path(__file__).resolve().parent.parent / "nitor-window.log"
 T_START = time.monotonic()           # старт процесу вікна — щоб бачити в журналі, як швидко з'являється вікно
 
 
 def wlog(text: str) -> None:
-    """Журнал вікна (sc-dmx-window.log поруч із програмою): завантаження сторінки, збої рушія, помилки JS."""
+    """Журнал вікна (nitor-window.log поруч із програмою): завантаження сторінки, збої рушія, помилки JS."""
     try:
         if LOG.exists() and LOG.stat().st_size > 500_000:
             LOG.unlink()
@@ -65,7 +65,7 @@ p{{margin:0;color:{color};font-size:12px}}
 .spin{{width:22px;height:22px;border-radius:50%;border:2px solid #2b303b;border-top-color:#4f8cff;
   animation:r .8s linear infinite}}
 @keyframes r{{to{{transform:rotate(360deg)}}}}
-</style><div class="box"><div class="logo">{logo}</div><h1>SC DMX</h1>{spinner}<p>{html.escape(text)}</p></div></html>"""
+</style><div class="box"><div class="logo">{logo}</div><h1>Nitor</h1>{spinner}<p>{html.escape(text)}</p></div></html>"""
 
 
 def run_window(url: str, should_close: Callable[[], bool] = lambda: False) -> int:
@@ -96,8 +96,8 @@ def run_window(url: str, should_close: Callable[[], bool] = lambda: False) -> in
     from PySide6.QtWidgets import QFileDialog, QMessageBox
 
     app = QApplication.instance() or QApplication(sys.argv[:1])
-    app.setApplicationName("SC DMX")
-    app.setOrganizationName("SC DMX")
+    app.setApplicationName("Nitor")
+    app.setOrganizationName("Nitor")
     if ICON.exists():
         app.setWindowIcon(QIcon(str(ICON)))
 
@@ -141,7 +141,7 @@ def run_window(url: str, should_close: Callable[[], bool] = lambda: False) -> in
     import PySide6
     wlog(f"Вікно: {url} · Qt {PySide6.__version__} · {os.environ.get('QTWEBENGINE_CHROMIUM_FLAGS', '')}")
     win = QMainWindow()
-    win.setWindowTitle("SC DMX")
+    win.setWindowTitle("Nitor")
     view = QWebEngineView(win)
     view.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)  # меню — власне, у самій програмі
     view.setPage(Page(QWebEngineProfile.defaultProfile(), view))
@@ -208,12 +208,12 @@ def run_window(url: str, should_close: Callable[[], bool] = lambda: False) -> in
         view.load(QUrl(url))
 
 
-    # Файли, які віддає програма (напр. сцена .scdmx), — через діалог «Зберегти як»
+    # Файли, які віддає програма (напр. сцена .nitor), — через діалог «Зберегти як»
     def on_download(req):
-        name = req.downloadFileName() or "scene.scdmx"
+        name = req.downloadFileName() or "scene.nitor"
         last = settings.value("files/dir") or str(Path.home() / "Documents")
         ext = Path(name).suffix
-        flt = f"Сцена SC DMX (*{ext});;Усі файли (*)" if ext == ".scdmx" else "Усі файли (*)"
+        flt = f"Сцена Nitor (*{ext});;Усі файли (*)" if ext == ".nitor" else "Усі файли (*)"
         path, _ = QFileDialog.getSaveFileName(win, "Зберегти файл", str(Path(last) / name), flt)
         if not path:
             req.cancel()
@@ -227,7 +227,7 @@ def run_window(url: str, should_close: Callable[[], bool] = lambda: False) -> in
             if req.isFinished():
                 ok = req.state() == req.DownloadState.DownloadCompleted
                 msg = f"Файл збережено: {target.name}" if ok else "Не вдалося зберегти файл"
-                view.page().runJavaScript(f"window.scdmxToast && window.scdmxToast({json.dumps(msg)}, {str(ok).lower()})")
+                view.page().runJavaScript(f"window.nitorToast && window.nitorToast({json.dumps(msg)}, {str(ok).lower()})")
         req.isFinishedChanged.connect(done)
         req.accept()
 
@@ -238,6 +238,8 @@ def run_window(url: str, should_close: Callable[[], bool] = lambda: False) -> in
 
     settings = QSettings()
     geometry = settings.value("window/geometry")
+    if geometry is None:   # розмір вікна з часів, коли програма називалася SC DMX
+        geometry = QSettings("SC DMX", "SC DMX").value("window/geometry")
     if geometry is None or not win.restoreGeometry(geometry):
         win.resize(1440, 900)
 
@@ -245,7 +247,7 @@ def run_window(url: str, should_close: Callable[[], bool] = lambda: False) -> in
         win.setWindowIcon(QIcon(str(ICON)))
 
     if sys.platform == "win32":
-        # ще до показу: заголовок у кольорах програми й «SC DMX» на панелі задач замість «Python»
+        # ще до показу: заголовок у кольорах програми й «Nitor» на панелі задач замість «Python»
         hwnd = int(win.winId())
         for step in (winshell.style_title_bar, winshell.set_window_identity):
             try:
@@ -267,7 +269,7 @@ def run_window(url: str, should_close: Callable[[], bool] = lambda: False) -> in
         win.close()
 
     def ask_native():
-        box = QMessageBox(QMessageBox.Icon.Question, "SC DMX", "Закрити SC DMX?\nПрожектори згаснуть.", parent=win)
+        box = QMessageBox(QMessageBox.Icon.Question, "Nitor", "Закрити Nitor?\nПрожектори згаснуть.", parent=win)
         yes = box.addButton("Закрити", QMessageBox.ButtonRole.DestructiveRole)
         box.addButton("Скасувати", QMessageBox.ButtonRole.RejectRole)
         box.exec()
@@ -280,7 +282,7 @@ def run_window(url: str, should_close: Callable[[], bool] = lambda: False) -> in
             orig_close(event)
             return
         event.ignore()
-        view.page().runJavaScript("window.scdmxRequestClose ? window.scdmxRequestClose() : 'none'", 0,
+        view.page().runJavaScript("window.nitorRequestClose ? window.nitorRequestClose() : 'none'", 0,
                                   lambda result: None if result == "asked" else ask_native())
 
     win.closeEvent = close_event

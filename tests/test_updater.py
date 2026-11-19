@@ -26,12 +26,13 @@ def _zip_of(src, zpath, prefix):
             zf.write(f, f"{prefix}{f.relative_to(src)}")
 
 
-@pytest.mark.parametrize("prefix", ["", "Navascar-SC-DMX-abc123/"])  # архів релізу та zipball GitHub
+@pytest.mark.parametrize("prefix", ["", "Navascar-Nitor-abc123/"])  # архів релізу та zipball GitHub
 def test_install_from_zip_replaces_files_and_keeps_config(tmp_path, prefix):
     app = _make_app(tmp_path / "app", "1.0.0")
     (app / "config.json").write_text('{"keep": true}')
     (app / "dmxctl" / "old_module.py").write_text("x = 1")
     (app / ".venv").mkdir()
+    (app / "sc-dmx.pyw").write_text("")   # запуск версій SC DMX: на нього вказують старі ярлики
     new = _make_app(tmp_path / "new", "1.1.0")
     (new / "dmxctl" / "new_module.py").write_text("y = 2")
     zpath = tmp_path / "u.zip"
@@ -44,6 +45,7 @@ def test_install_from_zip_replaces_files_and_keeps_config(tmp_path, prefix):
     assert not (app / "dmxctl" / "old_module.py").exists()      # старі файли прибрано
     assert (app / "config.json").read_text() == '{"keep": true}'  # налаштування цілі
     assert (app / ".venv").is_dir()
+    assert (app / "sc-dmx.pyw").exists()
     assert (app / ".update-backup" / "dmxctl" / "old_module.py").exists()  # резервна копія
 
 
@@ -73,11 +75,11 @@ def test_open_external_only_http(monkeypatch):
     opened = []
     monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(webbrowser, "open", lambda url: opened.append(url) or True)
-    assert server.open_external("https://github.com/Navascar/SC-DMX/releases")
+    assert server.open_external("https://github.com/Navascar/Nitor/releases")
     assert not server.open_external("file:///C:/Windows/System32/calc.exe")
     assert not server.open_external("javascript:alert(1)")
     assert not server.open_external("https:///nohost")
-    assert opened == ["https://github.com/Navascar/SC-DMX/releases"]
+    assert opened == ["https://github.com/Navascar/Nitor/releases"]
 
 
 def test_failed_requirements_restore_previous_version(tmp_path, monkeypatch):
@@ -89,9 +91,9 @@ def test_failed_requirements_restore_previous_version(tmp_path, monkeypatch):
     (app / "config.json").write_text("{}")
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:
-        z.writestr("SC-DMX/dmxctl/__init__.py", '__version__ = "9.9.9"\n')
-        z.writestr("SC-DMX/dmxctl/new.py", "")
-        z.writestr("SC-DMX/requirements.txt", "x\n")
+        z.writestr("Nitor/dmxctl/__init__.py", '__version__ = "9.9.9"\n')
+        z.writestr("Nitor/dmxctl/new.py", "")
+        z.writestr("Nitor/requirements.txt", "x\n")
 
     class Resp(io.BytesIO):
         headers = {}
@@ -102,7 +104,7 @@ def test_failed_requirements_restore_previous_version(tmp_path, monkeypatch):
         raise RuntimeError("pip: немає мережі")
     monkeypatch.setattr(updater, "install_requirements", pip_fail)
     with pytest.raises(RuntimeError):
-        updater.download_and_install("http://x/SC-DMX.zip", app_dir=app)
+        updater.download_and_install("http://x/Nitor.zip", app_dir=app)
     assert "1.0.0" in (app / "dmxctl" / "__init__.py").read_text()
     assert not (app / "dmxctl" / "new.py").exists()
     assert (app / "config.json").read_text() == "{}"          # налаштування не чіпаються

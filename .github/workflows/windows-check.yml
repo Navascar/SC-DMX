@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Збірка SC-DMX-Setup.exe
+      - name: Збірка Nitor-Setup.exe
         shell: pwsh
         run: |
           $nsis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
@@ -26,33 +26,57 @@ jobs:
           New-Item -ItemType Directory -Force build\app | Out-Null
           git archive --format=zip -o build\src.zip HEAD
           Expand-Archive build\src.zip -DestinationPath build\app
-          & $nsis -V2 "-DVERSION=0.0.1" "-DSRC=$pwd\build\app" "-DOUTFILE=$pwd\SC-DMX-Setup.exe" installer\sc-dmx.nsi
+          & $nsis -V2 "-DVERSION=0.0.1" "-DSRC=$pwd\build\app" "-DOUTFILE=$pwd\Nitor-Setup.exe" installer\nitor.nsi
           if ($LASTEXITCODE) { exit 1 }
+
+      - name: Стара установка SC DMX (назва до перейменування)
+        shell: pwsh
+        run: |
+          $old = Join-Path $env:LOCALAPPDATA 'SC-DMX'
+          New-Item -ItemType Directory -Force $old | Out-Null
+          Set-Content (Join-Path $old 'config.json') '{}' -Encoding UTF8
+          Set-Content (Join-Path $old 'sc-dmx.pyw') '' -Encoding UTF8
+          $lnk = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path ([Environment]::GetFolderPath('Desktop')) 'SC DMX.lnk'))
+          $lnk.TargetPath = Join-Path $old 'sc-dmx.pyw'
+          $lnk.Save()
+          $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\SC-DMX'
+          New-Item $key -Force | Out-Null
+          New-ItemProperty $key -Name DisplayName -Value 'SC DMX' -Force | Out-Null
 
       - name: Встановлення (вікно в режимі автоперевірки)
         shell: pwsh
         run: |
-          $env:SCDMX_SETUP_AUTOTEST = '1'
-          $env:SCDMX_SETUP_SHOTS = "$pwd\shots"
+          $env:NITOR_SETUP_AUTOTEST = '1'
+          $env:NITOR_SETUP_SHOTS = "$pwd\shots"
           # чужий сервер на порту 8080 — встановленню не заважає
           $other = Start-Process python -ArgumentList '-m', 'http.server', '8080' -PassThru -WindowStyle Hidden
           Start-Sleep -Seconds 2
-          $p = Start-Process .\SC-DMX-Setup.exe -PassThru -Wait
+          $p = Start-Process .\Nitor-Setup.exe -PassThru -Wait
           Stop-Process -Id $other.Id -Force
           "Код виходу інсталятора: $($p.ExitCode)"
-          Get-Content "$env:TEMP\SC-DMX-install.log" -Encoding UTF8 | Select-Object -Last 40
-          $app = Join-Path $env:LOCALAPPDATA 'SC-DMX'
-          foreach ($f in 'Uninstall.exe', 'sc-dmx.pyw', '.venv\Scripts\pythonw.exe') {
+          Get-Content "$env:TEMP\Nitor-install.log" -Encoding UTF8 | Select-Object -Last 40
+          $app = Join-Path $env:LOCALAPPDATA 'Nitor'
+          foreach ($f in 'Uninstall.exe', 'nitor.pyw', '.venv\Scripts\pythonw.exe') {
             "{0,-28} {1}" -f $f, (Test-Path (Join-Path $app $f))
           }
           if (-not (Test-Path (Join-Path $app 'Uninstall.exe'))) { exit 1 }
+          # дані старої установки SC DMX перенесено, стара копія прибрана
+          $old = Join-Path $env:LOCALAPPDATA 'SC-DMX'
+          $checks = [ordered]@{
+            'config.json перенесено'   = Test-Path (Join-Path $app 'config.json')
+            'теку SC-DMX видалено'     = -not (Test-Path $old)
+            'ярлик SC DMX видалено'    = -not (Test-Path (Join-Path ([Environment]::GetFolderPath('Desktop')) 'SC DMX.lnk'))
+            'запис SC-DMX видалено'    = -not (Test-Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\SC-DMX')
+          }
+          $checks.GetEnumerator() | ForEach-Object { "{0,-28} {1}" -f $_.Key, $_.Value }
+          if ($checks.Values -contains $false) { exit 1 }
 
       - name: Ярлики й ідентифікатор застосунку
         shell: pwsh
         run: |
-          $app = Join-Path $env:LOCALAPPDATA 'SC-DMX'
+          $app = Join-Path $env:LOCALAPPDATA 'Nitor'
           Push-Location $app
-          .\.venv\Scripts\python.exe -c "from dmxctl import winshell as w; [print(d/'SC DMX.lnk', w._read_id(d/'SC DMX.lnk')) for d in w._shortcut_dirs()]"
+          .\.venv\Scripts\python.exe -c "from dmxctl import winshell as w; [print(d/'Nitor.lnk', w._read_id(d/'Nitor.lnk')) for d in w._shortcut_dirs()]"
           Pop-Location
 
       - name: Вікно запуску не відкриває програму, поки є оновлення
@@ -61,15 +85,15 @@ jobs:
           # підставна «нова версія»: програма має показати вікно оновлення, а не інтерфейс
           New-Item -ItemType Directory -Force fakeapi | Out-Null
           @{ tag_name = 'v99.0.0'; body = "- Перевірка вікна запуску`n- Друга зміна"; html_url = 'https://example.invalid/'
-             assets = @(@{ name = 'SC-DMX.zip'; browser_download_url = 'http://127.0.0.1:8790/none.zip' }) } |
+             assets = @(@{ name = 'Nitor.zip'; browser_download_url = 'http://127.0.0.1:8790/none.zip' }) } |
             ConvertTo-Json -Depth 5 | Set-Content fakeapi\release.json -Encoding utf8NoBOM
           $api = Start-Process python -ArgumentList '-m', 'http.server', '8790', '--directory', "$pwd\fakeapi" -PassThru -WindowStyle Hidden
-          $env:SC_DMX_UPDATE_API = 'http://127.0.0.1:8790/release.json'
-          $app = Join-Path $env:LOCALAPPDATA 'SC-DMX'
-          Remove-Item (Join-Path $app 'sc-dmx-window.log') -ErrorAction SilentlyContinue
-          Start-Process (Join-Path ([Environment]::GetFolderPath('Programs')) 'SC DMX.lnk')
+          $env:NITOR_UPDATE_API = 'http://127.0.0.1:8790/release.json'
+          $app = Join-Path $env:LOCALAPPDATA 'Nitor'
+          Remove-Item (Join-Path $app 'nitor-window.log') -ErrorAction SilentlyContinue
+          Start-Process (Join-Path ([Environment]::GetFolderPath('Programs')) 'Nitor.lnk')
           # чекаємо, поки вікно запуску покаже оновлення (перший запуск після встановлення повільніший)
-          $wlog = Join-Path $app 'sc-dmx-window.log'
+          $wlog = Join-Path $app 'nitor-window.log'
           $end = (Get-Date).AddSeconds(90)
           while ((Get-Date) -lt $end -and -not ((Test-Path $wlog) -and (Select-String -Path $wlog -Pattern 'Вікно запуску: update' -Quiet))) {
             Start-Sleep -Seconds 1
@@ -81,33 +105,33 @@ jobs:
           [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
           New-Item -ItemType Directory -Force shots | Out-Null
           $bmp.Save("$pwd\shots\3a-splash-update.png")
-          $h = @{ 'X-SCDMX-Splash' = '1' }
+          $h = @{ 'X-Nitor-Splash' = '1' }
           $upd = Invoke-RestMethod 'http://127.0.0.1:8080/api/update' -Headers $h
           "Оновлення: available=$($upd.available) latest=$($upd.latest) checked=$($upd.checked)"
-          $log = Get-Content (Join-Path $app 'sc-dmx-window.log') -Encoding UTF8 -ErrorAction SilentlyContinue
+          $log = Get-Content (Join-Path $app 'nitor-window.log') -Encoding UTF8 -ErrorAction SilentlyContinue
           $log | Select-String 'Вікно запуску|Відкриття інтерфейсу'
           $opened = [bool]($log | Select-String 'Відкриття інтерфейсу')
           # закриваємо, як кнопка «Закрити» у вікні оновлення
           Invoke-RestMethod 'http://127.0.0.1:8080/api/quit' -Method Post -Headers $h | Out-Null
           Start-Sleep -Seconds 6
           Stop-Process -Id $api.Id -Force
-          $left = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'dmxctl|sc-dmx\.pyw' }
-          "Процесів SC DMX після закриття: $(@($left).Count)"
+          $left = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'dmxctl|nitor\.pyw' }
+          "Процесів Nitor після закриття: $(@($left).Count)"
           foreach ($p in $left) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
           if (-not $upd.available -or $opened) { 'Програма відкрилася попри оновлення'; exit 1 }
 
       - name: Запуск програми, знімок екрана, панель задач
         shell: pwsh
         run: |
-          # чужий сервер на порту 8080: SC DMX має запуститися на іншому порту, а не відкрити порожнє вікно
+          # чужий сервер на порту 8080: Nitor має запуститися на іншому порту, а не відкрити порожнє вікно
           Start-Process python -ArgumentList '-m', 'http.server', '8080' -WindowStyle Hidden
           Start-Sleep -Seconds 2
-          $lnk = Join-Path ([Environment]::GetFolderPath('Programs')) 'SC DMX.lnk'
+          $lnk = Join-Path ([Environment]::GetFolderPath('Programs')) 'Nitor.lnk'
           Start-Process $lnk
           Start-Sleep -Seconds 25
           $page = try { (Invoke-WebRequest 'http://127.0.0.1:8081/' -UseBasicParsing -TimeoutSec 3).Content } catch { '' }
-          "SC DMX на порту 8081: $($page -match '<title>SC DMX</title>')"
-          if ($page -notmatch '<title>SC DMX</title>') { exit 1 }
+          "Nitor на порту 8081: $($page -match '<title>Nitor</title>')"
+          if ($page -notmatch '<title>Nitor</title>') { exit 1 }
           Add-Type -AssemblyName System.Windows.Forms, System.Drawing
           $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
           $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
@@ -123,13 +147,13 @@ jobs:
           Start-Sleep -Seconds 20
           $g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
           $bmp.Save("$pwd\shots\5-app-screen-later.png")
-          $app = Join-Path $env:LOCALAPPDATA 'SC-DMX'
-          '--- sc-dmx-window.log'
-          Get-Content (Join-Path $app 'sc-dmx-window.log') -Encoding UTF8 -ErrorAction SilentlyContinue
-          '--- sc-dmx.log'
-          Get-Content (Join-Path $app 'sc-dmx.log') -Encoding UTF8 -ErrorAction SilentlyContinue | Select-Object -Last 20
+          $app = Join-Path $env:LOCALAPPDATA 'Nitor'
+          '--- nitor-window.log'
+          Get-Content (Join-Path $app 'nitor-window.log') -Encoding UTF8 -ErrorAction SilentlyContinue
+          '--- nitor.log'
+          Get-Content (Join-Path $app 'nitor.log') -Encoding UTF8 -ErrorAction SilentlyContinue | Select-Object -Last 20
           '--- процеси'
-          Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'dmxctl|sc-dmx|QtWebEngine' } |
+          Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'dmxctl|nitor|QtWebEngine' } |
             ForEach-Object { "$($_.ProcessId) $($_.CommandLine)" }
           if ($blank) { 'Вікно програми порожнє'; exit 1 }
           Push-Location $app
@@ -137,11 +161,11 @@ jobs:
           import win32gui
           from win32com.propsys import propsys, pscon
           def cb(h, out):
-              if win32gui.IsWindowVisible(h) and win32gui.GetWindowText(h) == "SC DMX":
+              if win32gui.IsWindowVisible(h) and win32gui.GetWindowText(h) == "Nitor":
                   out.append(h)
           wins = []
           win32gui.EnumWindows(cb, wins)
-          print("Вікна SC DMX:", wins)
+          print("Вікна Nitor:", wins)
           for h in wins:
               s = propsys.SHGetPropertyStoreForWindow(h, propsys.IID_IPropertyStore)
               for k in ("ID", "RelaunchCommand", "RelaunchDisplayNameResource", "RelaunchIconResource"):
@@ -156,8 +180,8 @@ jobs:
       - name: Друга копія не відкривається
         shell: pwsh
         run: |
-          $lnk = Join-Path ([Environment]::GetFolderPath('Programs')) 'SC DMX.lnk'
-          $app = Join-Path $env:LOCALAPPDATA 'SC-DMX'
+          $lnk = Join-Path ([Environment]::GetFolderPath('Programs')) 'Nitor.lnk'
+          $app = Join-Path $env:LOCALAPPDATA 'Nitor'
           @'
           import ctypes, subprocess, sys, time
           from dmxctl import winshell
@@ -168,7 +192,7 @@ jobs:
               def cb(h, _):
                   t = ctypes.create_unicode_buffer(64); c = ctypes.create_unicode_buffer(128)
                   u.GetWindowTextW(h, t, 64); u.GetClassNameW(h, c, 128)
-                  if t.value == "SC DMX" and "Qt" in c.value and u.IsWindowVisible(h):
+                  if t.value == "Nitor" and "Qt" in c.value and u.IsWindowVisible(h):
                       out.append(h)
                   return True
               u.EnumWindows(cb, 0)
@@ -199,33 +223,33 @@ jobs:
           $code = $LASTEXITCODE
           Pop-Location
           exit $code
-          Get-Content (Join-Path $app 'sc-dmx.log') -ErrorAction SilentlyContinue | Select-Object -Last 20
+          Get-Content (Join-Path $app 'nitor.log') -ErrorAction SilentlyContinue | Select-Object -Last 20
 
-      - name: Повторне встановлення, коли SC DMX відкрито (лише ярлик у меню «Пуск»)
+      - name: Повторне встановлення, коли Nitor відкрито (лише ярлик у меню «Пуск»)
         shell: pwsh
         run: |
-          $env:SCDMX_SETUP_AUTOTEST = '1'
-          $env:SCDMX_SETUP_SHOTS = "$pwd\shots\again"
-          $env:SCDMX_SETUP_LINKS = 'start'
-          $desk = Join-Path ([Environment]::GetFolderPath('Desktop')) 'SC DMX.lnk'
-          $start = Join-Path ([Environment]::GetFolderPath('Programs')) 'SC DMX.lnk'
+          $env:NITOR_SETUP_AUTOTEST = '1'
+          $env:NITOR_SETUP_SHOTS = "$pwd\shots\again"
+          $env:NITOR_SETUP_LINKS = 'start'
+          $desk = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Nitor.lnk'
+          $start = Join-Path ([Environment]::GetFolderPath('Programs')) 'Nitor.lnk'
           Remove-Item $desk -ErrorAction SilentlyContinue
-          $p = Start-Process .\SC-DMX-Setup.exe -PassThru -Wait
+          $p = Start-Process .\Nitor-Setup.exe -PassThru -Wait
           "Код виходу інсталятора: $($p.ExitCode)"
-          Get-Content "$env:TEMP\SC-DMX-install.log" -Encoding UTF8 | Select-String 'закриття|Зупиняю|закрито|Завершено|Запуск'
-          $left = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'dmxctl|sc-dmx\.pyw' }
-          "Процесів SC DMX після встановлення: $(@($left).Count)"
+          Get-Content "$env:TEMP\Nitor-install.log" -Encoding UTF8 | Select-String 'закриття|Зупиняю|закрито|Завершено|Запуск'
+          $left = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'dmxctl|nitor\.pyw' }
+          "Процесів Nitor після встановлення: $(@($left).Count)"
           "Ярлик на робочому столі: $(Test-Path $desk) (має бути False), у меню «Пуск»: $(Test-Path $start)"
-          Copy-Item "$env:TEMP\SC-DMX-install.log" shots\install-again.log -ErrorAction SilentlyContinue
+          Copy-Item "$env:TEMP\Nitor-install.log" shots\install-again.log -ErrorAction SilentlyContinue
           if ($p.ExitCode -ne 0 -or (Test-Path $desk) -or -not (Test-Path $start)) { exit 1 }
 
       - name: Видалення лише сцен і кольорів (решта даних лишається)
         shell: pwsh
         run: |
-          $env:SCDMX_SETUP_AUTOTEST = '1'
-          $env:SCDMX_SETUP_SHOTS = "$pwd\shots\uninstall"
-          $env:SCDMX_UNINSTALL_PARTS = 'scenes,colors'
-          $app = Join-Path $env:LOCALAPPDATA 'SC-DMX'
+          $env:NITOR_SETUP_AUTOTEST = '1'
+          $env:NITOR_SETUP_SHOTS = "$pwd\shots\uninstall"
+          $env:NITOR_UNINSTALL_PARTS = 'scenes,colors'
+          $app = Join-Path $env:LOCALAPPDATA 'Nitor'
           $cfg = Join-Path $app 'config.json'
           @{
             output = @{ type = 'udmx' }; master = 200
@@ -241,8 +265,8 @@ jobs:
             if (-not $busy) { break }
             Start-Sleep -Seconds 2
           }
-          Get-Content "$env:TEMP\SC-DMX-uninstall.log" -Encoding UTF8
-          Copy-Item "$env:TEMP\SC-DMX-uninstall.log" shots\ -ErrorAction SilentlyContinue
+          Get-Content "$env:TEMP\Nitor-uninstall.log" -Encoding UTF8
+          Copy-Item "$env:TEMP\Nitor-uninstall.log" shots\ -ErrorAction SilentlyContinue
           '--- залишилося в теці програми'
           Get-ChildItem $app -Force -ErrorAction SilentlyContinue | ForEach-Object { $_.Name }
           $ok = $true
@@ -252,13 +276,13 @@ jobs:
             "сцени: $($null -ne $c.scenes)  кольори: $($null -ne $c.static_colors)  прилади: $(@($c.fixtures).Count)  вихід: $($c.output.type)"
             if ($null -ne $c.scenes -or $null -ne $c.static_colors -or @($c.fixtures).Count -ne 1 -or $c.output.type -ne 'udmx') { $ok = $false }
           }
-          foreach ($f in 'Uninstall.exe', '.venv', 'dmxctl', 'sc-dmx.pyw') {
+          foreach ($f in 'Uninstall.exe', '.venv', 'dmxctl', 'nitor.pyw') {
             if (Test-Path (Join-Path $app $f)) { "Не видалено: $f"; $ok = $false }
           }
           foreach ($d in [Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs')) {
-            if (Test-Path (Join-Path $d 'SC DMX.lnk')) { "Ярлик не видалено: $d"; $ok = $false }
+            if (Test-Path (Join-Path $d 'Nitor.lnk')) { "Ярлик не видалено: $d"; $ok = $false }
           }
-          $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\SC-DMX'
+          $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Nitor'
           if (Test-Path $key) { 'Запис у «Програми та компоненти» не видалено'; $ok = $false }
           if (-not $ok) { exit 1 }
           'Видалення: усе як треба'
@@ -268,7 +292,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force shots | Out-Null
-          Copy-Item "$env:TEMP\SC-DMX-install.log" shots\ -ErrorAction SilentlyContinue
+          Copy-Item "$env:TEMP\Nitor-install.log" shots\ -ErrorAction SilentlyContinue
       - name: Знімки в журнал (base64, для перегляду без артефактів)
         if: always()
         shell: pwsh

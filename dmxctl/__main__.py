@@ -1,4 +1,4 @@
-"""Лаунчер SC DMX.
+"""Лаунчер Nitor.
 
 python -m dmxctl [--open] [--port N] ...
 
@@ -33,12 +33,12 @@ def port_busy(port: int) -> bool:
         return s.connect_ex(("127.0.0.1", port)) == 0
 
 
-def is_scdmx(port: int) -> bool:
-    """Чи на порту саме SC DMX, а не інший застосунок (той самий порт може бути зайнятий чимось іншим)."""
+def is_nitor(port: int) -> bool:
+    """Чи на порту саме Nitor, а не інший застосунок (той самий порт може бути зайнятий чимось іншим)."""
     from urllib.request import ProxyHandler, build_opener
     try:
         with build_opener(ProxyHandler({})).open(f"http://127.0.0.1:{port}/", timeout=2) as resp:
-            return b"<title>SC DMX</title>" in resp.read(4096)
+            return b"<title>Nitor</title>" in resp.read(4096)
     except Exception:  # noqa: BLE001 — не відповідає або не HTTP
         return False
 
@@ -50,8 +50,8 @@ def free_port(start: int, tries: int = 20) -> int:
     return start
 
 
-def find_scdmx_port(start: int, tries: int = 20) -> int | None:
-    return next((p for p in range(start, start + tries) if port_busy(p) and is_scdmx(p)), None)
+def find_nitor_port(start: int, tries: int = 20) -> int | None:
+    return next((p for p in range(start, start + tries) if port_busy(p) and is_nitor(p)), None)
 
 
 def wait_port(port: int, timeout: float = 30) -> bool:
@@ -120,7 +120,7 @@ def focus_existing(port: int) -> None:
                 winshell.focus_window(hwnd)
                 return
             time.sleep(0.3)
-    port = find_scdmx_port(port) or port
+    port = find_nitor_port(port) or port
     wait_port(port)
     show_window(f"http://127.0.0.1:{port}/")   # друге вікно однаково не відкриється: у вікна свій захист від копій
 
@@ -145,13 +145,13 @@ def main() -> None:
         from . import winshell
         guard = winshell.single_instance(winshell.APP_MUTEX)
         already = guard is None
-    # Зайнятий порт ще не означає, що SC DMX запущена: це може бути інший застосунок.
+    # Зайнятий порт ще не означає, що Nitor запущена: це може бути інший застосунок.
     # Раніше в такому разі сервер не запускався, а вікно відкривало чужу сторінку — порожнє вікно.
-    if not already and find_scdmx_port(args.port) is not None:
+    if not already and find_nitor_port(args.port) is not None:
         already = True
     if already:
         # друга копія не запускається: лише показуємо вікно вже відкритої програми
-        print("SC DMX вже запущено")
+        print("Nitor вже запущено")
         if args.open:
             focus_existing(args.port)
         return
@@ -159,7 +159,7 @@ def main() -> None:
     port = args.port
     if port_busy(port):
         port = free_port(port + 1)
-        print(f"Порт {args.port} зайнятий іншим застосунком, SC DMX працює на порту {port}")
+        print(f"Порт {args.port} зайнятий іншим застосунком, Nitor працює на порту {port}")
         server_args += ["--port", str(port)]
     url = f"http://127.0.0.1:{port}/"
 
@@ -185,7 +185,7 @@ def main() -> None:
         done.set()
 
     threading.Thread(target=supervise, name="server", daemon=True).start()
-    print(f"SC DMX: {url}  (Ctrl+C — вихід)")
+    print(f"Nitor: {url}  (Ctrl+C — вихід)")
     try:
         if args.open:
             # вікно — одразу, з екраном завантаження (воно саме чекає на сервер);

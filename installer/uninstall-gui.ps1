@@ -1,4 +1,4 @@
-﻿# SC DMX — вікно видалення (запускає Uninstall.exe, без консолі).
+﻿# Nitor — вікно видалення (запускає Uninstall.exe, без консолі).
 #
 # Вікно в стилі вікна встановлення (спільне — у ui-common.ps1). Два варіанти:
 #   «Лише програму»          — файли програми й ярлики видаляються, config.json (сцени, прилади,
@@ -9,16 +9,16 @@
 #
 # Код виходу: 0 — програму видалено, 1 — ні (скасовано), 3 — вікно не вдалося відкрити
 # (тоді Uninstall.exe питає звичайним повідомленням). Запис у «Програми та компоненти» прибирає Uninstall.exe.
-# Для перевірки в CI: SCDMX_SETUP_AUTOTEST=1 — видалення починається само, вікно закривається саме,
-# знімки — в теку SCDMX_SETUP_SHOTS. SCDMX_UNINSTALL_PARTS — що видалити з даних: порожньо — нічого
+# Для перевірки в CI: NITOR_SETUP_AUTOTEST=1 — видалення починається само, вікно закривається саме,
+# знімки — в теку NITOR_SETUP_SHOTS. NITOR_UNINSTALL_PARTS — що видалити з даних: порожньо — нічого
 # («Лише програму»), «all» — усе, або через кому: scenes,fixtures,profiles,colors,settings.
 
-param([string]$AppDir = (Join-Path $env:LOCALAPPDATA 'SC-DMX'), [string]$Version = '', [string]$Icon = '')
+param([string]$AppDir = (Join-Path $env:LOCALAPPDATA 'Nitor'), [string]$Version = '', [string]$Icon = '')
 
 $ErrorActionPreference = 'Stop'
-$LogPath = Join-Path $env:TEMP 'SC-DMX-uninstall.log'
-$AutoTest = $env:SCDMX_SETUP_AUTOTEST -eq '1'
-$Shots = $env:SCDMX_SETUP_SHOTS
+$LogPath = Join-Path $env:TEMP 'Nitor-uninstall.log'
+$AutoTest = $env:NITOR_SETUP_AUTOTEST -eq '1'
+$Shots = $env:NITOR_SETUP_SHOTS
 $script:Removed = $false
 $script:Busy = $false
 $AppDir = $AppDir.TrimEnd('\')
@@ -26,8 +26,8 @@ $Config = Join-Path $AppDir 'config.json'
 
 try {
     . (Join-Path $PSScriptRoot 'ui-common.ps1')
-    Set-Content -LiteralPath $LogPath -Value "SC DMX $Version — видалення з $AppDir" -Encoding UTF8
-    Initialize-ScDmxUi 'SCDMX.Setup'
+    Set-Content -LiteralPath $LogPath -Value "Nitor $Version — видалення з $AppDir" -Encoding UTF8
+    Initialize-NitorUi 'Nitor.Setup'
 } catch {
     try { Add-Content -LiteralPath $LogPath -Value "Не вдалося підготувати вікно: $_" -Encoding UTF8 } catch { }
     exit 3
@@ -36,7 +36,7 @@ try {
 # ------------------------------------------------------------------- вигляд ---
 $Body = @'
       <StackPanel Grid.Row="1" Margin="24,18,24,0">
-        <TextBlock x:Name="Heading" FontSize="20" FontWeight="SemiBold" Text="Видалення SC DMX"/>
+        <TextBlock x:Name="Heading" FontSize="20" FontWeight="SemiBold" Text="Видалення Nitor"/>
         <TextBlock x:Name="Sub" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,6,0,0" TextWrapping="Wrap"
                    Text="Оберіть, що видалити з комп'ютера."/>
         <StackPanel x:Name="Options" Margin="0,18,0,0">
@@ -87,7 +87,7 @@ $Body = @'
 '@
 
 try {
-    $win = New-ScDmxWindow 'Видалення SC DMX' $Body 'Видалити' 'DangerBtn'
+    $win = New-NitorWindow 'Видалення Nitor' $Body 'Видалити' 'DangerBtn'
 } catch {
     Write-Log "Не вдалося створити вікно: $_"
     exit 3
@@ -109,8 +109,8 @@ if (-not $HasData) {
     $ui.Sub.Text = 'Програму й ярлики буде видалено з комп''ютера.'
 }
 
-if ($AutoTest -and $env:SCDMX_UNINSTALL_PARTS) {
-    $want = if ($env:SCDMX_UNINSTALL_PARTS -eq 'all') { @($PartBoxes.Keys) } else { $env:SCDMX_UNINSTALL_PARTS -split ',' }
+if ($AutoTest -and $env:NITOR_UNINSTALL_PARTS) {
+    $want = if ($env:NITOR_UNINSTALL_PARTS -eq 'all') { @($PartBoxes.Keys) } else { $env:NITOR_UNINSTALL_PARTS -split ',' }
     $ui.Full.IsChecked = $true
     foreach ($k in @($PartBoxes.Keys)) { $PartBoxes[$k].IsChecked = $want -contains $k }
 }
@@ -141,8 +141,8 @@ New-Steps $ui.Steps @(
 )
 
 function Show-RunningNote {
-    Show-Note 'SC DMX відкрито. Її буде закрито, прожектори згаснуть.' 'warn'
-    $ui.MainBtn.Content = 'Закрити SC DMX і видалити'
+    Show-Note 'Nitor відкрито. Її буде закрито, прожектори згаснуть.' 'warn'
+    $ui.MainBtn.Content = 'Закрити Nitor і видалити'
     $script:CloseMode = $true
 }
 
@@ -172,7 +172,7 @@ function Invoke-Hidden($exe, $arguments) {
 function Remove-Shortcuts {
     $dirs = @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs'))
     foreach ($d in $dirs) {
-        $lnk = Join-Path $d 'SC DMX.lnk'
+        $lnk = Join-Path $d 'Nitor.lnk'
         if (Test-Path -LiteralPath $lnk) {
             try { Remove-Item -LiteralPath $lnk -Force; Write-Log "Видалено $lnk" } catch { Write-Log "Не вдалося видалити $lnk`: $_" }
         }
@@ -198,17 +198,17 @@ function Start-Uninstall {
     if (App-Running) {
         if (-not $script:CloseMode -and -not $AutoTest) { Show-RunningNote; return }
         if (-not (Close-App)) {
-            Show-Note 'Не вдалося закрити SC DMX. Закрийте її вручну.' 'error'
+            Show-Note 'Не вдалося закрити Nitor. Закрийте її вручну.' 'error'
             $ui.MainBtn.Content = 'Видалити'
             $script:CloseMode = $false
             return
         }
     }
-    # тека програми — лише та, де справді лежить SC DMX
-    $known = (Test-Path -LiteralPath (Join-Path $AppDir 'sc-dmx.pyw')) -or ((Split-Path $AppDir -Leaf) -eq 'SC-DMX')
+    # тека програми — лише та, де справді лежить Nitor
+    $known = (Test-Path -LiteralPath (Join-Path $AppDir 'nitor.pyw')) -or ((Split-Path $AppDir -Leaf) -eq 'Nitor')
     if (-not $known) {
-        Write-Log "Тека не схожа на теку SC DMX: $AppDir"
-        Show-Note "Тека $AppDir не схожа на теку SC DMX — її не видалено." 'error'
+        Write-Log "Тека не схожа на теку Nitor: $AppDir"
+        Show-Note "Тека $AppDir не схожа на теку Nitor — її не видалено." 'error'
         return
     }
 
@@ -278,7 +278,7 @@ function Start-Uninstall {
     $ui.Status.Text = ' '
     $script:Removed = $true
     $script:Busy = $false
-    $ui.Heading.Text = 'SC DMX видалено'
+    $ui.Heading.Text = 'Nitor видалено'
     $keptData = $keepConfig -and (Test-Path -LiteralPath $Config)
     Write-Log ("Готово. Дані залишено: " + $keptData)
     if ($keptData) {
@@ -305,7 +305,7 @@ function Invoke-Main {
     try { Start-Uninstall } catch {
         Write-Log "Помилка видалення: $_"
         $script:Busy = $false
-        Show-Note "Не вдалося видалити SC DMX: $($_.Exception.Message)" 'error'
+        Show-Note "Не вдалося видалити Nitor: $($_.Exception.Message)" 'error'
         $ui.SecondBtn.Visibility = 'Visible'
         $ui.SecondBtn.Content = 'Закрити'
         if ($AutoTest) { $win.Close() }

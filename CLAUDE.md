@@ -1,4 +1,4 @@
-# SC DMX — правила для Claude
+# Nitor — правила для Claude
 
 Програма для Windows: керування RGB-прожекторами через uDMX та інші DMX-інтерфейси.
 Python 3.10+ (сервер aiohttp, вікно Qt WebEngine / PySide6, pywin32, pyusb) + веб-інтерфейс без фреймворків.
@@ -11,8 +11,8 @@ Python 3.10+ (сервер aiohttp, вікно Qt WebEngine / PySide6, pywin32, 
   `library.py` (бібліотека моделей), `updater.py` (оновлення з GitHub Releases), `__main__.py` (лаунчер).
 - `dmxctl/static/` — інтерфейс: `index.html`, `app.js`, `style.css` (дизайн-система на CSS-токенах).
 - `install.ps1` — встановлення (у консолі або `-Progress` для вікна встановлення).
-- `installer/` — `sc-dmx.nsi` (SC-DMX-Setup.exe: тихе розпакування) і `setup-gui.ps1` (вікно встановлення WPF).
-- `sc-dmx.pyw` — запуск без консолі (ярлики, закріплення на панелі задач).
+- `installer/` — `nitor.nsi` (Nitor-Setup.exe: тихе розпакування) і `setup-gui.ps1` (вікно встановлення WPF).
+- `nitor.pyw` — запуск без консолі (ярлики, закріплення на панелі задач).
 - `tests/` — pytest. `tools/build_library.py` — збірка бібліотеки приладів.
 
 ## Команди
@@ -35,8 +35,11 @@ python -m dmxctl --host 127.0.0.1 --port 8765 --config /tmp/cfg.json --backgroun
   використовуйте `[T]::new(...)`. Зовнішні програми зі stderr при `$ErrorActionPreference='Stop'` — через `Run`
   з `install.ps1`. У `pwsh` аргументи на кшталт `-DVERSION=1.2.3` беріть у лапки.
 - **NSIS**: одинарна лапка всередині рядка в одинарних лапках — `$\'`.
-- **Порт 8080 ≠ SC DMX**: «програма запущена» перевіряйте за `<title>SC DMX</title>` або процесами з `dmxctl`.
-- **Одна копія програми**: м'ютекси `Local\SCDMX.App` (лаунчер) і `Local\SCDMX.Window` (вікно), див. `winshell.py`.
+- **Порт 8080 ≠ Nitor**: «програма запущена» перевіряйте за `<title>Nitor</title>` або процесами з `dmxctl`.
+- **Одна копія програми**: м'ютекси `Local\Nitor.App` (лаунчер) і `Local\Nitor.Window` (вікно), див. `winshell.py`.
+- **Стара назва SC DMX**: до перейменування програма називалася SC DMX (`%LOCALAPPDATA%\SC-DMX`, `sc-dmx.pyw`,
+  ярлики «SC DMX», ключ `Uninstall\SC-DMX`, файли сцен `.scdmx`). Згадки старої назви в коді — це перенесення таких
+  установок (`install.ps1`, `winshell.repair_shortcuts`, `updater.KEEP`, `LEGACY_*`, `SC-DMX.zip` у релізі); не прибирайте їх.
 
 ## Релізи
 

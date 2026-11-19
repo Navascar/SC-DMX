@@ -1,12 +1,12 @@
-﻿# SC DMX — інсталятор для Windows.
+﻿# Nitor — інсталятор для Windows.
 #
-# Найпростіше: SC-DMX-Setup.exe зі сторінки релізів (показує вікно встановлення й сам запускає цей скрипт).
+# Найпростіше: Nitor-Setup.exe зі сторінки релізів (показує вікно встановлення й сам запускає цей скрипт).
 # Запуск з розпакованого архіву:  install.bat
 # Або одним рядком у PowerShell (завантажить останню версію з GitHub):
-#   $s = irm https://raw.githubusercontent.com/Navascar/SC-DMX/main/install.ps1; iex $s.TrimStart([char]0xFEFF)
+#   $s = irm https://raw.githubusercontent.com/Navascar/Nitor/main/install.ps1; iex $s.TrimStart([char]0xFEFF)
 #
-# Що робить: копіює програму в %LOCALAPPDATA%\SC-DMX, створює окреме середовище Python (.venv),
-# встановлює залежності, створює ярлики «SC DMX» на робочому столі та в меню «Пуск» і запускає програму.
+# Що робить: копіює програму в %LOCALAPPDATA%\Nitor, створює окреме середовище Python (.venv),
+# встановлює залежності, створює ярлики «Nitor» на робочому столі та в меню «Пуск» і запускає програму.
 # Повторний запуск безпечний: налаштування (config.json) зберігаються.
 #
 # -NoLaunch     — не запускати програму наприкінці.
@@ -23,8 +23,8 @@ $ProgressPreference = 'SilentlyContinue'
 # Python пише в канал у системному кодуванні (cp1251), а ми читаємо UTF-8 — шлях до Python з кириличним
 # іменем користувача (C:\Users\Дмитро\...) псувався, і Python «не знаходився». Просимо Python писати UTF-8.
 $env:PYTHONIOENCODING = 'utf-8'
-$Repo = 'Navascar/SC-DMX'
-$AppDir = Join-Path $env:LOCALAPPDATA 'SC-DMX'
+$Repo = 'Navascar/Nitor'
+$AppDir = Join-Path $env:LOCALAPPDATA 'Nitor'
 
 function Emit($line) { [Console]::Out.WriteLine($line); [Console]::Out.Flush() }
 function Step($id, $text) {
@@ -94,14 +94,14 @@ if ($PSScriptRoot -and (Test-Path (Join-Path $PSScriptRoot 'dmxctl\__init__.py')
 } else {
     Step 'files' 'Завантаження останньої версії з GitHub'
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    $rel = Invoke-RestMethod "https://api.github.com/repos/$Repo/releases/latest" -Headers @{ 'User-Agent' = 'SC-DMX-installer' }
-    $asset = $rel.assets | Where-Object { $_.name -eq 'SC-DMX.zip' } | Select-Object -First 1
+    $rel = Invoke-RestMethod "https://api.github.com/repos/$Repo/releases/latest" -Headers @{ 'User-Agent' = 'Nitor-installer' }
+    $asset = $rel.assets | Where-Object { $_.name -eq 'Nitor.zip' } | Select-Object -First 1
     $url = if ($asset) { $asset.browser_download_url } else { $rel.zipball_url }
     Log "Версія $($rel.tag_name)"
-    $Tmp = Join-Path $env:TEMP ("sc-dmx-" + [guid]::NewGuid())
+    $Tmp = Join-Path $env:TEMP ("nitor-" + [guid]::NewGuid())
     New-Item -ItemType Directory $Tmp | Out-Null
-    $zip = Join-Path $Tmp 'SC-DMX.zip'
-    Invoke-WebRequest $url -OutFile $zip -UseBasicParsing -Headers @{ 'User-Agent' = 'SC-DMX-installer' }
+    $zip = Join-Path $Tmp 'Nitor.zip'
+    Invoke-WebRequest $url -OutFile $zip -UseBasicParsing -Headers @{ 'User-Agent' = 'Nitor-installer' }
     Expand-Archive $zip -DestinationPath (Join-Path $Tmp 'x')
     $Src = (Get-ChildItem (Join-Path $Tmp 'x') -Recurse -Filter '__init__.py' |
             Where-Object { $_.Directory.Name -eq 'dmxctl' } | Select-Object -First 1).Directory.Parent.FullName
@@ -109,26 +109,49 @@ if ($PSScriptRoot -and (Test-Path (Join-Path $PSScriptRoot 'dmxctl\__init__.py')
 }
 
 # Якщо програма запущена — її треба закрити, щоб оновити файли
-# Запущена SC DMX — її процеси (python/pythonw з dmxctl або sc-dmx.pyw). Порт не годиться: якщо 8080
-# зайнятий іншим застосунком, SC DMX працює на 8081…8099.
+# Запущена Nitor — її процеси (python/pythonw з dmxctl, nitor.pyw або sc-dmx.pyw — версії до перейменування).
+# Порт не годиться: якщо 8080 зайнятий іншим застосунком, Nitor працює на 8081…8099.
 $running = $false
 try {
     $running = [bool](Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" -ErrorAction Stop |
-        Where-Object { $_.CommandLine -match 'dmxctl|sc-dmx\.pyw' })
+        Where-Object { $_.CommandLine -match 'dmxctl|nitor\.pyw|sc-dmx\.pyw' })
 } catch { }
 if ($running) {
-    if ($Progress) { Fail 'SC DMX зараз відкрито. Закрийте вікно програми й спробуйте ще раз.' }
-    Write-Host 'SC DMX зараз відкрито. Закрийте вікно програми й натисніть Enter.' -ForegroundColor Yellow
+    if ($Progress) { Fail 'Nitor зараз відкрито. Закрийте вікно програми й спробуйте ще раз.' }
+    Write-Host 'Nitor зараз відкрито. Закрийте вікно програми й натисніть Enter.' -ForegroundColor Yellow
     Read-Host | Out-Null
+}
+
+# ------------------------------------------------------- перейменування ---
+# Раніше програма називалася SC DMX і жила в %LOCALAPPDATA%\SC-DMX. Налаштування (сцени, прилади)
+# переносимо в нову теку, а стару копію з її ярликами й записом у «Програмах» прибираємо.
+$OldDir = Join-Path $env:LOCALAPPDATA 'SC-DMX'
+if (Test-Path -LiteralPath $OldDir) {
+    New-Item -ItemType Directory -Force $AppDir | Out-Null
+    $oldCfg = Join-Path $OldDir 'config.json'
+    if ((Test-Path -LiteralPath $oldCfg) -and -not (Test-Path (Join-Path $AppDir 'config.json'))) {
+        Copy-Item -LiteralPath $oldCfg $AppDir
+        Log 'Налаштування перенесено з теки SC-DMX'
+    }
+    foreach ($d in @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs'))) {
+        Remove-Item -LiteralPath (Join-Path $d 'SC DMX.lnk') -ErrorAction SilentlyContinue
+    }
+    Remove-Item 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\SC-DMX' -Recurse -ErrorAction SilentlyContinue
+    # стару теку не видаляємо, якщо встановлення запущене саме з неї (install.bat у теці SC-DMX)
+    $srcFull = (Resolve-Path $Src).Path.TrimEnd('\')
+    if ($srcFull -ne $OldDir -and -not $srcFull.StartsWith($OldDir + '\', [StringComparison]::OrdinalIgnoreCase)) {
+        Remove-Item -LiteralPath $OldDir -Recurse -Force -ErrorAction SilentlyContinue
+        Log 'Стару теку SC-DMX видалено'
+    }
 }
 
 # ------------------------------------------------------------- копіювання ---
 Log "Тека програми: $AppDir"
 New-Item -ItemType Directory -Force $AppDir | Out-Null
 if ((Resolve-Path $Src).Path.TrimEnd('\') -ne (Resolve-Path $AppDir).Path.TrimEnd('\')) {
-    $keep = @('config.json', '.venv', 'sc-dmx.log', '.git', 'Uninstall.exe')
+    $keep = @('config.json', '.venv', 'nitor.log', '.git', 'Uninstall.exe')
     Get-ChildItem $AppDir -Force | Where-Object { $keep -notcontains $_.Name } | Remove-Item -Recurse -Force
-    Get-ChildItem $Src -Force | Where-Object { @('.venv', '.git', 'sc-dmx.log', 'installer') -notcontains $_.Name } | ForEach-Object {
+    Get-ChildItem $Src -Force | Where-Object { @('.venv', '.git', 'nitor.log', 'installer') -notcontains $_.Name } | ForEach-Object {
         if ($_.Name -eq 'config.json') {
             # налаштування зі старої теки переносимо лише якщо нових ще немає
             if (-not (Test-Path (Join-Path $AppDir 'config.json'))) { Copy-Item $_.FullName $AppDir }
@@ -153,13 +176,13 @@ $code = Run $VenvPy @('-m', 'pip', 'install', '--disable-pip-version-check', '--
 if ($code -ne 0) { Fail 'Не вдалося встановити компоненти. Перевірте інтернет і спробуйте ще раз.' }
 
 # --------------------------------------------------------------- ярлики ---
-# Ярлики з ідентифікатором застосунку: на панелі задач — «SC DMX» з іконкою програми, а не «Python»
+# Ярлики з ідентифікатором застосунку: на панелі задач — «Nitor» з іконкою програми, а не «Python»
 $LinkDirs = @()
 if (-not $NoDesktop) { $LinkDirs += [Environment]::GetFolderPath('Desktop') }
 if (-not $NoStartMenu) { $LinkDirs += [Environment]::GetFolderPath('Programs') }
 # ярлик, який цього разу не вибрали, прибираємо (лишився від попереднього встановлення)
-if ($NoDesktop) { Remove-Item (Join-Path ([Environment]::GetFolderPath('Desktop')) 'SC DMX.lnk') -ErrorAction SilentlyContinue }
-if ($NoStartMenu) { Remove-Item (Join-Path ([Environment]::GetFolderPath('Programs')) 'SC DMX.lnk') -ErrorAction SilentlyContinue }
+if ($NoDesktop) { Remove-Item (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Nitor.lnk') -ErrorAction SilentlyContinue }
+if ($NoStartMenu) { Remove-Item (Join-Path ([Environment]::GetFolderPath('Programs')) 'Nitor.lnk') -ErrorAction SilentlyContinue }
 if ($LinkDirs.Count) {
     Step 'shortcuts' 'Створення ярликів'
     $linkArgs = @('-m', 'dmxctl.winshell', 'install')
@@ -172,12 +195,12 @@ if ($LinkDirs.Count) {
         Log 'Ярлики — запасним способом'
         $shell = New-Object -ComObject WScript.Shell
         foreach ($dir in $LinkDirs) {
-            $lnk = $shell.CreateShortcut((Join-Path $dir 'SC DMX.lnk'))
+            $lnk = $shell.CreateShortcut((Join-Path $dir 'Nitor.lnk'))
             $lnk.TargetPath = $Pyw
-            $lnk.Arguments = '"' + (Join-Path $AppDir 'sc-dmx.pyw') + '"'
+            $lnk.Arguments = '"' + (Join-Path $AppDir 'nitor.pyw') + '"'
             $lnk.WorkingDirectory = $AppDir
             $lnk.IconLocation = Join-Path $AppDir 'dmxctl\static\icon.ico'
-            $lnk.Description = 'SC DMX — керування RGB-прожекторами'
+            $lnk.Description = 'Nitor — керування RGB-прожекторами'
             $lnk.Save()
         }
     }
@@ -188,6 +211,6 @@ if ($NoLaunch) {
     Step 'done' 'Готово!'
     exit 0
 }
-Step 'done' 'Готово! Запускаю SC DMX'
-Start-Process -FilePath $Pyw -ArgumentList ('"' + (Join-Path $AppDir 'sc-dmx.pyw') + '"') -WorkingDirectory $AppDir
+Step 'done' 'Готово! Запускаю Nitor'
+Start-Process -FilePath $Pyw -ArgumentList ('"' + (Join-Path $AppDir 'nitor.pyw') + '"') -WorkingDirectory $AppDir
 if ($Host.Name -eq 'ConsoleHost' -and $PSScriptRoot) { Start-Sleep -Seconds 4 }

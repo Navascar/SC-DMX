@@ -105,7 +105,7 @@ function connect() {
   ws.onopen = () => ($("#offline").hidden = true);
   ws.onmessage = (e) => onMessage(JSON.parse(e.data));
   ws.onclose = () => {
-    if (quitting) document.title = "__SCDMX_CLOSE__";
+    if (quitting) document.title = "__NITOR_CLOSE__";
     setOutput({ ok: false, status: "немає з'єднання з сервером" });
     const restarting = updateInfo && updateInfo.status === "restarting";
     $("#offline").hidden = false;
@@ -212,7 +212,7 @@ function hostLayer(node) {
 }
 
 // ------------------------------------------------ власні вікна (замість браузерних) ---
-function uiDialog({ title = "SC DMX", text = "", input = null, ok = "OK", cancel = "Скасувати", danger = false }) {
+function uiDialog({ title = "Nitor", text = "", input = null, ok = "OK", cancel = "Скасувати", danger = false }) {
   stopCapture();   // відкрите підтвердження не має «ловити» клавіші для гарячих клавіш
   return new Promise((resolve) => {
     const dlg = $("#uiDlg");
@@ -565,7 +565,7 @@ function renderUpdate() {
     textContent: busy ? (u.progress || "Оновлення…") : failed ? "Оновлення не вдалося" : `Оновити до ${u.latest}` }));
   btn.title = failed ? u.error : `Встановлена версія ${u.current}, доступна ${u.latest}`;
 
-  $("#updTitle").textContent = `SC DMX ${u.latest}`;
+  $("#updTitle").textContent = `Nitor ${u.latest}`;
   $("#updSubtitle").textContent = `Встановлено: ${u.current}  →  нова версія: ${u.latest}`;
   $("#updNotes").textContent = u.notes || "Опис змін відсутній.";
   $("#updBlocked").hidden = !u.blocked;
@@ -832,7 +832,7 @@ function renderScenes() {
   }));
 }
 
-// сцена у файлі .scdmx — щоб перенести її на інший комп'ютер
+// сцена у файлі .nitor — щоб перенести її на інший комп'ютер
 async function saveSceneFile(name) {
   let blob;
   try {
@@ -840,7 +840,7 @@ async function saveSceneFile(name) {
     if (!r.ok) throw new Error();
     blob = await r.blob();
   } catch { return toast("Не вдалося підготувати файл сцени"); }
-  const file = (name.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_").replace(/^[ .]+|[ .]+$/g, "") || "scene") + ".scdmx";
+  const file = (name.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_").replace(/^[ .]+|[ .]+$/g, "") || "scene") + ".nitor";
   const url = URL.createObjectURL(blob);
   const a = el("a", { href: url, download: file });
   document.body.append(a);
@@ -856,7 +856,7 @@ function openSceneFile() {
 
 async function importSceneFile(file) {
   let data;
-  try { data = JSON.parse(await file.text()); } catch { return toast("Це не файл сцени SC DMX"); }
+  try { data = JSON.parse(await file.text()); } catch { return toast("Це не файл сцени Nitor"); }
   send({ cmd: "import_scene", data });
 }
 
@@ -1410,13 +1410,13 @@ function generalMenu() {
 // Закриття вікна програми (хрестик, Alt+F4) — лише після підтвердження.
 // Викликається з вікна Qt; "asked" — питання показано тут, інакше вікно спитає саме.
 // сповіщення від вікна програми (напр. «Файл збережено»)
-window.scdmxToast = (text, ok) => toast(text, ok);
+window.nitorToast = (text, ok) => toast(text, ok);
 
-window.scdmxRequestClose = () => {
+window.nitorRequestClose = () => {
   if (!ws || ws.readyState !== WebSocket.OPEN || quitting) return "none";
   if ($("#uiDlg").open) return "asked";
   hideMenu();
-  uiConfirm("Прожектори згаснуть.", { title: "Закрити SC DMX?", ok: "Закрити", danger: true })
+  uiConfirm("Прожектори згаснуть.", { title: "Закрити Nitor?", ok: "Закрити", danger: true })
     .then((ok) => { if (ok) { quitting = true; send({ cmd: "quit" }); } });
   return "asked";
 };

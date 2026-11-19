@@ -25,10 +25,11 @@ log = logging.getLogger(__name__)
 
 APP_DIR = Path(__file__).resolve().parent.parent
 RESTART_CODE = 42
-API_URL = os.environ.get("SC_DMX_UPDATE_API", f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest")
-ASSET_NAME = "SC-DMX.zip"
+API_URL = os.environ.get("NITOR_UPDATE_API", f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest")
+ASSET_NAME = "Nitor.zip"
 # Що зберігається між версіями
-KEEP = {"config.json", "config.tmp", ".venv", "venv", ".git", "sc-dmx.log", ".update-backup", "Uninstall.exe"}
+KEEP = {"config.json", "config.tmp", ".venv", "venv", ".git", "nitor.log", ".update-backup", "Uninstall.exe",
+        "sc-dmx.pyw"}   # запуск версій, що називалися SC DMX: на нього ще вказують старі ярлики
 
 
 def parse_version(v: str) -> tuple[int, ...]:
@@ -42,7 +43,7 @@ def is_newer(latest: str, current: str = __version__) -> bool:
 
 def _open(url: str, timeout: float = 15):
     req = urllib.request.Request(url, headers={
-        "User-Agent": "SC-DMX-updater",
+        "User-Agent": "Nitor-updater",
         "Accept": "application/vnd.github+json" if "api.github.com" in url else "*/*",
     })
     return urllib.request.urlopen(req, timeout=timeout, context=ssl.create_default_context())
@@ -84,7 +85,7 @@ def _find_root(extracted: Path) -> Path:
 
 def install_from_zip(zip_path: Path, app_dir: Path = APP_DIR) -> None:
     """Розпаковує архів і замінює файли застосунку з резервною копією та відкатом."""
-    with tempfile.TemporaryDirectory(prefix="sc-dmx-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="nitor-") as tmp:
         tmp = Path(tmp)
         with zipfile.ZipFile(zip_path) as zf:
             root = tmp.resolve()
@@ -149,7 +150,7 @@ def download_and_install(url: str, progress=lambda text: None, app_dir: Path = A
     reason = can_self_update()
     if reason:
         raise RuntimeError(reason)
-    with tempfile.TemporaryDirectory(prefix="sc-dmx-dl-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="nitor-dl-") as tmp:
         zpath = Path(tmp) / "update.zip"
         progress("Завантаження…")
         with _open(url, timeout=60) as resp, open(zpath, "wb") as fh:

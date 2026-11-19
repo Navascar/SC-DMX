@@ -1,4 +1,4 @@
-"""Веб-сервер SC DMX: статичний інтерфейс + WebSocket для керування в реальному часі."""
+"""Веб-сервер Nitor: статичний інтерфейс + WebSocket для керування в реальному часі."""
 from __future__ import annotations
 
 import argparse
@@ -309,13 +309,16 @@ async def on_cleanup(app: web.Application) -> None:
 
 # ------------------------------------------------------ вікно запуску ---
 # Вікно запуску (dmxctl/splash.py) питає стан оновлення й запускає його, поки інтерфейсу ще немає.
-# Лише з цього комп'ютера і з заголовком X-SCDMX-Splash: звичайна сторінка в браузері не може
+# Лише з цього комп'ютера і з заголовком X-Nitor-Splash: звичайна сторінка в браузері не може
 # надіслати такий заголовок на чужу адресу (CORS), тож сторонній сайт ці запити не зробить.
-SPLASH_HEADER = "X-SCDMX-Splash"
+SPLASH_HEADER = "X-Nitor-Splash"
+# вікно запуску версії, що ще називалася SC DMX, після оновлення питає новий сервер зі старим заголовком
+LEGACY_SPLASH_HEADER = "X-SCDMX-Splash"
 
 
 def _splash_request(request: web.Request) -> None:
-    if not _is_local(request) or request.headers.get(SPLASH_HEADER) != "1":
+    marks = (request.headers.get(SPLASH_HEADER), request.headers.get(LEGACY_SPLASH_HEADER))
+    if not _is_local(request) or "1" not in marks:
         raise web.HTTPForbidden(text="Forbidden")
     request.app[WATCH]["splash_at"] = asyncio.get_running_loop().time()   # вікно запуску живе
 
@@ -358,7 +361,7 @@ async def library_api(request: web.Request) -> web.Response:
 
 
 async def scene_file(request: web.Request) -> web.Response:
-    """Сцена як файл .scdmx — для перенесення на інший комп'ютер."""
+    """Сцена як файл .nitor — для перенесення на інший комп'ютер."""
     from urllib.parse import quote
     name = request.query.get("name", "")
     try:
@@ -486,7 +489,7 @@ def setup_logging(verbose: bool) -> None:
     handlers: list[logging.Handler] = []
     try:
         handlers.append(logging.handlers.RotatingFileHandler(
-            updater.APP_DIR / "sc-dmx.log", maxBytes=1_000_000, backupCount=1, encoding="utf-8"))
+            updater.APP_DIR / "nitor.log", maxBytes=1_000_000, backupCount=1, encoding="utf-8"))
     except OSError:
         pass
     if sys.stderr is not None:  # під pythonw консолі немає

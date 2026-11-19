@@ -40,12 +40,14 @@ def test_splash_api_only_with_header(tmp_path):
         async with TestClient(TestServer(app)) as c:
             host = {"Host": f"127.0.0.1:{c.port}"}
             assert (await c.get("/api/update", headers=host)).status == 403          # без заголовка
-            r = await c.get("/api/update", headers={**host, "X-SCDMX-Splash": "1"})
+            r = await c.get("/api/update", headers={**host, "X-Nitor-Splash": "1"})
             assert r.status == 200 and "checked" in await r.json()
-            r = await c.post("/api/quit", headers={**host, "X-SCDMX-Splash": "1",
+            # вікно запуску версії, що ще називалася SC DMX, — під час оновлення на Nitor
+            assert (await c.get("/api/update", headers={**host, "X-SCDMX-Splash": "1"})).status == 200
+            r = await c.post("/api/quit", headers={**host, "X-Nitor-Splash": "1",
                                                    "Origin": "https://evil.example"})
             assert r.status == 403 and not app[STOP].is_set()                       # чужа сторінка
-            r = await c.post("/api/quit", headers={**host, "X-SCDMX-Splash": "1"})
+            r = await c.post("/api/quit", headers={**host, "X-Nitor-Splash": "1"})
             assert r.status == 200 and app[STOP].is_set() and app[EXIT]["code"] == 0
     asyncio.run(run())
 
@@ -56,14 +58,14 @@ def test_server_waits_while_splash_shows_update(tmp_path, monkeypatch):
     from aiohttp.test_utils import TestClient, TestServer
     from dmxctl import server, updater
     monkeypatch.setattr(updater, "check", lambda: {"current": "1.0.0", "latest": "9.9.9", "available": True,
-                                                   "notes": "", "url": "http://x/SC-DMX.zip", "page": ""})
+                                                   "notes": "", "url": "http://x/Nitor.zip", "page": ""})
     monkeypatch.setattr(updater, "can_self_update", lambda: None)
     monkeypatch.setattr(server, "STARTUP_TIMEOUT_S", 0.6)
 
     async def run():
         app = server.make_app(str(tmp_path / "cfg.json"), background=False)
         async with TestClient(TestServer(app)) as c:
-            h = {"Host": f"127.0.0.1:{c.port}", "X-SCDMX-Splash": "1"}
+            h = {"Host": f"127.0.0.1:{c.port}", "X-Nitor-Splash": "1"}
             for _ in range(10):                       # ~2 с опитування — утричі довше за таймаут
                 upd = await (await c.get("/api/update", headers=h)).json()
                 await asyncio.sleep(0.2)

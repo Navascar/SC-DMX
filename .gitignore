@@ -5,6 +5,6 @@ config.json
 config.tmp
 .venv/
 venv/
-sc-dmx.log*
+nitor.log*
 .update-backup/
 *.zip

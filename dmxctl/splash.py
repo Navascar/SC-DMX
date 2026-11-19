@@ -1,4 +1,4 @@
-"""Вікно запуску SC DMX.
+"""Вікно запуску Nitor.
 
 З'являється одразу після запуску програми, ще до того, як завантажиться вбудований браузер
 інтерфейсу, тож видно, що програма запускається. Поки воно відкрите:
@@ -23,7 +23,7 @@ from urllib.request import ProxyHandler, Request, build_opener
 ICON = Path(__file__).resolve().parent / "static" / "icon.ico"
 CHECK_WAIT_S = 20      # довше на перевірку оновлень не чекаємо (повільний інтернет)
 SERVER_WAIT_S = 90     # сервер так і не запустився — показуємо помилку
-SPLASH_HEADER = "X-SCDMX-Splash"
+SPLASH_HEADER = "X-Nitor-Splash"
 
 # Кольори — з дизайн-системи інтерфейсу (style.css)
 BG, SURFACE, RAISED, LINE, LINE_STRONG = "#0f1115", "#171a21", "#1f232c", "#2b303b", "#3d4452"
@@ -95,7 +95,7 @@ def run_splash(url: str, version: str, on_open: Callable[[], None], log=lambda t
     font = '"Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif'
 
     win = QWidget()
-    win.setWindowTitle("SC DMX")
+    win.setWindowTitle("Nitor")
     win.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
     win.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
     if ICON.exists():
@@ -135,7 +135,7 @@ def run_splash(url: str, version: str, on_open: Callable[[], None], log=lambda t
     logo = QLabel()
     if ICON.exists():
         logo.setPixmap(QIcon(str(ICON)).pixmap(28, 28))
-    name = QLabel("SC DMX")
+    name = QLabel("Nitor")
     name.setStyleSheet("font-size: 16px; font-weight: 600;")
     ver = QLabel(version, objectName="muted")
     head.addWidget(logo)
@@ -149,7 +149,7 @@ def run_splash(url: str, version: str, on_open: Callable[[], None], log=lambda t
     body = QVBoxLayout()
     body.setContentsMargins(24, 18, 24, 22)
     body.setSpacing(0)
-    heading = QLabel("Запуск SC DMX", objectName="heading")
+    heading = QLabel("Запуск Nitor", objectName="heading")
     status = QLabel("Запуск програми…", objectName="muted")
     status.setWordWrap(True)
     bar = QProgressBar(textVisible=False)
@@ -203,10 +203,10 @@ def run_splash(url: str, version: str, on_open: Callable[[], None], log=lambda t
         footer.hide()
         bar.show()
         if phase == "wait":
-            heading.setText("Запуск SC DMX")
+            heading.setText("Запуск Nitor")
             status.setText("Перезапуск після оновлення…" if state["restarted"] else "Запуск програми…")
         elif phase == "checking":
-            heading.setText("Запуск SC DMX")
+            heading.setText("Запуск Nitor")
             status.setText("Перевірка оновлень…")
         elif phase == "update":
             heading.setText(f"Доступна версія {upd.get('latest', '')}")
@@ -221,7 +221,7 @@ def run_splash(url: str, version: str, on_open: Callable[[], None], log=lambda t
             footer.show()
             main_btn.setFocus()
         elif phase == "installing":
-            heading.setText("Оновлення SC DMX")
+            heading.setText("Оновлення Nitor")
             text = (upd or {}).get("progress") or ("Перезапуск…" if upd is None else "Підготовка…")
             status.setText(text)
             pct = progress_percent(text)
@@ -240,7 +240,7 @@ def run_splash(url: str, version: str, on_open: Callable[[], None], log=lambda t
             footer.show()
         elif phase == "server_error":
             heading.setText("Не вдалося запустити")
-            status.setText("Закрийте вікно й відкрийте SC DMX знову. Подробиці — у файлі sc-dmx.log у теці програми.")
+            status.setText("Закрийте вікно й відкрийте Nitor знову. Подробиці — у файлі nitor.log у теці програми.")
             bar.hide()
             main_btn.hide()
             footer.show()

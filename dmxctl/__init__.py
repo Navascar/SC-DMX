@@ -1,4 +1,4 @@
-"""SC DMX — керування RGB-прожекторами через USB DMX (uDMX) та інші DMX-інтерфейси."""
+"""Nitor — керування RGB-прожекторами через USB DMX (uDMX) та інші DMX-інтерфейси."""
 __version__ = "1.26.7"
-APP_NAME = "SC DMX"
-GITHUB_REPO = "Navascar/SC-DMX"
+APP_NAME = "Nitor"
+GITHUB_REPO = "Navascar/Nitor"

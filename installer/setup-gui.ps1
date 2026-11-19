@@ -1,4 +1,4 @@
-﻿# SC DMX — вікно встановлення (запускає SC-DMX-Setup.exe, без консолі).
+﻿# Nitor — вікно встановлення (запускає Nitor-Setup.exe, без консолі).
 #
 # Вікно в стилі програми (темне, кольори й шрифт — як в інтерфейсі; спільне з вікном видалення —
 # у ui-common.ps1). Перед встановленням можна вибрати ярлики: на робочому столі й у меню «Пуск».
@@ -6,23 +6,23 @@
 # рядками @@STEP/@@LOG/...
 #
 # Код виходу: 0 — програму встановлено, 1 — ні (скасовано або помилка встановлення),
-# 3 — саме вікно не вдалося відкрити (тоді SC-DMX-Setup.exe показує повідомлення з журналом).
-# Для перевірки в CI: SCDMX_SETUP_AUTOTEST=1 — встановлення починається само, вікно закривається саме,
-# а знімки вікна зберігаються в теку SCDMX_SETUP_SHOTS. SCDMX_SETUP_LINKS — які ярлики створити
+# 3 — саме вікно не вдалося відкрити (тоді Nitor-Setup.exe показує повідомлення з журналом).
+# Для перевірки в CI: NITOR_SETUP_AUTOTEST=1 — встановлення починається само, вікно закривається саме,
+# а знімки вікна зберігаються в теку NITOR_SETUP_SHOTS. NITOR_SETUP_LINKS — які ярлики створити
 # в автоперевірці: «desktop,start» (типово), «start», «none»…
 
 param([string]$Source = (Split-Path $PSScriptRoot), [string]$Version = '')
 
 $ErrorActionPreference = 'Stop'
-$LogPath = Join-Path $env:TEMP 'SC-DMX-install.log'
-$AutoTest = $env:SCDMX_SETUP_AUTOTEST -eq '1'
-$Shots = $env:SCDMX_SETUP_SHOTS
+$LogPath = Join-Path $env:TEMP 'Nitor-install.log'
+$AutoTest = $env:NITOR_SETUP_AUTOTEST -eq '1'
+$Shots = $env:NITOR_SETUP_SHOTS
 $script:Installed = $false
 
 try {
     . (Join-Path $PSScriptRoot 'ui-common.ps1')
-    Set-Content -LiteralPath $LogPath -Value "SC DMX $Version — встановлення" -Encoding UTF8
-    Initialize-ScDmxUi 'SCDMX.Setup'
+    Set-Content -LiteralPath $LogPath -Value "Nitor $Version — встановлення" -Encoding UTF8
+    Initialize-NitorUi 'Nitor.Setup'
 } catch {
     try { Add-Content -LiteralPath $LogPath -Value "Не вдалося підготувати вікно: $_" -Encoding UTF8 } catch { }
     exit 3
@@ -31,7 +31,7 @@ try {
 # ------------------------------------------------------------------- вигляд ---
 $Body = @'
       <StackPanel Grid.Row="1" Margin="24,18,24,0">
-        <TextBlock x:Name="Heading" FontSize="20" FontWeight="SemiBold" Text="Встановлення SC DMX"/>
+        <TextBlock x:Name="Heading" FontSize="20" FontWeight="SemiBold" Text="Встановлення Nitor"/>
         <TextBlock x:Name="Sub" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,6,0,0" TextWrapping="Wrap"
                    Text="Потрібне підключення до інтернету."/>
         <StackPanel x:Name="Options" Margin="0,20,0,0">
@@ -51,7 +51,7 @@ $Body = @'
 '@
 
 try {
-    $win = New-ScDmxWindow 'Встановлення SC DMX' $Body 'Встановити'
+    $win = New-NitorWindow 'Встановлення Nitor' $Body 'Встановити'
 } catch {
     Write-Log "Не вдалося створити вікно: $_"
     exit 3
@@ -59,9 +59,9 @@ try {
 Set-WindowIcon (Join-Path $Source 'dmxctl\static\icon.ico')
 if ($Version) { $ui.VersionText.Text = $Version }
 
-if ($AutoTest -and $env:SCDMX_SETUP_LINKS) {
-    $ui.DesktopBox.IsChecked = $env:SCDMX_SETUP_LINKS -match 'desktop'
-    $ui.StartBox.IsChecked = $env:SCDMX_SETUP_LINKS -match 'start'
+if ($AutoTest -and $env:NITOR_SETUP_LINKS) {
+    $ui.DesktopBox.IsChecked = $env:NITOR_SETUP_LINKS -match 'desktop'
+    $ui.StartBox.IsChecked = $env:NITOR_SETUP_LINKS -match 'start'
 }
 
 # ------------------------------------------------------------------- кроки ---
@@ -84,8 +84,8 @@ $script:Failed = $false
 $script:Done = $false
 
 function Show-RunningNote {
-    Show-Note 'SC DMX відкрито. Її буде закрито, прожектори згаснуть.' 'warn'
-    $ui.MainBtn.Content = 'Закрити SC DMX і встановити'
+    Show-Note 'Nitor відкрито. Її буде закрито, прожектори згаснуть.' 'warn'
+    $ui.MainBtn.Content = 'Закрити Nitor і встановити'
     $script:CloseMode = $true
 }
 
@@ -118,7 +118,7 @@ function Start-Install {
         if (-not $script:CloseMode -and -not $AutoTest) { Show-RunningNote; return }
         Save-Shot '0-running'
         if (-not (Close-App)) {
-            Show-Note 'Не вдалося закрити SC DMX. Закрийте її вручну.' 'error'
+            Show-Note 'Не вдалося закрити Nitor. Закрийте її вручну.' 'error'
             $ui.MainBtn.Content = 'Встановити'
             $script:CloseMode = $false
             return
@@ -171,10 +171,10 @@ function Finish-Install {
         }
         $ui.Bar.Value = 100
         $script:Installed = $true
-        $ui.Heading.Text = 'SC DMX встановлено'
+        $ui.Heading.Text = 'Nitor встановлено'
         $ui.Sub.Visibility = 'Collapsed'
         $ui.Status.Text = ' '
-        $ui.MainBtn.Content = 'Запустити SC DMX'
+        $ui.MainBtn.Content = 'Запустити Nitor'
         $ui.MainBtn.Visibility = 'Visible'
         $ui.SecondBtn.Content = 'Закрити'
         Save-Shot '3-done'
@@ -224,13 +224,13 @@ $timer.Add_Tick({
 })
 
 function Launch-App {
-    # через ярлик — тоді вікно одразу з ідентифікатором SC DMX на панелі задач
+    # через ярлик — тоді вікно одразу з ідентифікатором Nitor на панелі задач
     $lnk = @([Environment]::GetFolderPath('Programs'), [Environment]::GetFolderPath('Desktop')) |
-        ForEach-Object { Join-Path $_ 'SC DMX.lnk' } | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
-    $app = Join-Path $env:LOCALAPPDATA 'SC-DMX'
+        ForEach-Object { Join-Path $_ 'Nitor.lnk' } | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+    $app = Join-Path $env:LOCALAPPDATA 'Nitor'
     try {
         if ($lnk) { Start-Process -FilePath $lnk }
-        else { Start-Process -FilePath (Join-Path $app '.venv\Scripts\pythonw.exe') -ArgumentList ('"' + (Join-Path $app 'sc-dmx.pyw') + '"') -WorkingDirectory $app }
+        else { Start-Process -FilePath (Join-Path $app '.venv\Scripts\pythonw.exe') -ArgumentList ('"' + (Join-Path $app 'nitor.pyw') + '"') -WorkingDirectory $app }
     } catch { Write-Log "Не вдалося запустити: $_" }
 }
 
@@ -243,7 +243,7 @@ $win.Add_Closing({
     param($s, $e)
     if ($script:Proc -and -not $script:Proc.HasExited) {
         if ($AutoTest) { Stop-Install; return }
-        $r = [Windows.MessageBox]::Show($win, 'Зупинити встановлення SC DMX?', 'SC DMX', 'YesNo', 'Question')
+        $r = [Windows.MessageBox]::Show($win, 'Зупинити встановлення Nitor?', 'Nitor', 'YesNo', 'Question')
         if ($r -ne 'Yes') { $e.Cancel = $true; return }
         Stop-Install
     }

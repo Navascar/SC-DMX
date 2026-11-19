@@ -1,6 +1,6 @@
-"""Запуск SC DMX без консолі — з ярлика, меню «Пуск» або закріпленої на панелі задач іконки.
+"""Запуск Nitor без консолі — з ярлика, меню «Пуск» або закріпленої на панелі задач іконки.
 
-pythonw.exe "...\\SC-DMX\\sc-dmx.pyw"  — те саме, що  python -m dmxctl --open  у теці програми.
+pythonw.exe "...\\Nitor\\nitor.pyw"  — те саме, що  python -m dmxctl --open  у теці програми.
 """
 import os
 import runpy

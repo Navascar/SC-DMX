@@ -1,11 +1,11 @@
 """Інтеграція з оболонкою Windows: ярлики, панель задач, заголовок вікна.
 
-Щоб Windows показувала на панелі задач «SC DMX» з власною іконкою (а не «Python»),
+Щоб Windows показувала на панелі задач «Nitor» з власною іконкою (а не «Python»),
 у вікна і в ярликів має бути однаковий ідентифікатор застосунку (AppUserModelID).
-Тоді закріплене на панелі задач вікно — це ярлик SC DMX, а меню правої кнопки
-називається «SC DMX».
+Тоді закріплене на панелі задач вікно — це ярлик Nitor, а меню правої кнопки
+називається «Nitor».
 
-Ярлики запускають sc-dmx.pyw через pythonw.exe — без консолі й з будь-якої теки.
+Ярлики запускають nitor.pyw через pythonw.exe — без консолі й з будь-якої теки.
 
 python -m dmxctl.winshell install   — створити ярлики (так робить інсталятор)
     --no-desktop      без ярлика на робочому столі
@@ -17,12 +17,16 @@ import os
 import sys
 from pathlib import Path
 
-APP_ID = "SCDMX.Controller"
-APP_NAME = "SC DMX"
+APP_ID = "Nitor.Controller"
+APP_NAME = "Nitor"
 APP_DIR = Path(__file__).resolve().parent.parent
-LAUNCHER = APP_DIR / "sc-dmx.pyw"
+LAUNCHER = APP_DIR / "nitor.pyw"
 ICON = APP_DIR / "dmxctl" / "static" / "icon.ico"
-DESCRIPTION = "SC DMX — керування RGB-прожекторами"
+DESCRIPTION = "Nitor — керування RGB-прожекторами"
+# До перейменування програма називалася SC DMX: її ярлики й запис у «Програмах» переводимо на Nitor
+LEGACY_APP_ID = "SCDMX.Controller"
+LEGACY_NAME = "SC DMX"
+LEGACY_UNINST_KEY = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\SC-DMX"
 
 # Кольори заголовка вікна — як верхня панель інтерфейсу (style.css: --surface, --text, --line)
 CAPTION = (0x17, 0x1A, 0x21)
@@ -90,7 +94,7 @@ def write_shortcut(path: Path) -> None:
 
 
 def install_shortcuts(desktop: bool = True, start_menu: bool = True) -> list[Path]:
-    """Ярлики «SC DMX» на робочому столі й у меню «Пуск» (лише вибрані)."""
+    """Ярлики «Nitor» на робочому столі й у меню «Пуск» (лише вибрані)."""
     desk, programs = _shortcut_dirs()
     paths = [d / f"{APP_NAME}.lnk" for d, on in ((desk, desktop), (programs, start_menu)) if on]
     for p in paths:
@@ -99,16 +103,52 @@ def install_shortcuts(desktop: bool = True, start_menu: bool = True) -> list[Pat
     return paths
 
 
+def _pinned_dir() -> Path:
+    return (Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Internet Explorer" / "Quick Launch"
+            / "User Pinned" / "TaskBar")
+
+
 def repair_shortcuts() -> None:
-    """Ярлики старих версій (без ідентифікатора застосунку) переписуються на нові."""
+    """Ярлики старих версій (без ідентифікатора застосунку або ярлики «SC DMX») переписуються на нові."""
     changed = False
     for d in _shortcut_dirs():
         p = d / f"{APP_NAME}.lnk"
-        if p.exists() and _read_id(p) != APP_ID:
+        legacy = d / f"{LEGACY_NAME}.lnk"
+        if legacy.exists():
+            write_shortcut(p)
+            legacy.unlink(missing_ok=True)
+            changed = True
+        elif p.exists() and _read_id(p) != APP_ID:
             write_shortcut(p)
             changed = True
+    # закріплена на панелі задач іконка SC DMX: файл не перейменовуємо, інакше вона відкріпиться
+    pinned = _pinned_dir()
+    for p in pinned.glob("*.lnk") if pinned.is_dir() else ():
+        try:
+            if _read_id(p) == LEGACY_APP_ID:
+                write_shortcut(p)
+                changed = True
+        except Exception:  # noqa: BLE001 — чужий або пошкоджений ярлик
+            pass
+    rename_uninstall_entry()
     if changed:
         _notify()
+
+
+def rename_uninstall_entry() -> None:
+    """Запис «SC DMX» у «Параметри → Програми» (встановлення до перейменування) — тепер «Nitor»."""
+    import winreg
+    from . import GITHUB_REPO
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, LEGACY_UNINST_KEY, 0,
+                            winreg.KEY_READ | winreg.KEY_SET_VALUE) as key:
+            if Path(winreg.QueryValueEx(key, "InstallLocation")[0]).resolve() != APP_DIR:
+                return
+            for name, value in (("DisplayName", APP_NAME), ("Publisher", APP_NAME),
+                                ("URLInfoAbout", f"https://github.com/{GITHUB_REPO}")):
+                winreg.SetValueEx(key, name, 0, winreg.REG_SZ, value)
+    except OSError:
+        pass
 
 
 def _notify() -> None:
@@ -117,7 +157,7 @@ def _notify() -> None:
 
 
 def set_window_identity(hwnd: int) -> None:
-    """Вікно = застосунок SC DMX: назва, іконка й команда запуску для панелі задач."""
+    """Вікно = застосунок Nitor: назва, іконка й команда запуску для панелі задач."""
     import pythoncom
     from win32com.propsys import propsys, pscon
     target, args = launch_command()
@@ -149,8 +189,8 @@ def style_title_bar(hwnd: int) -> None:
 
 
 # ------------------------------------------------------------ одна копія ---
-APP_MUTEX = "Local\\SCDMX.App"         # лаунчер із сервером — лише один
-WINDOW_MUTEX = "Local\\SCDMX.Window"   # вікно програми — лише одне
+APP_MUTEX = "Local\\Nitor.App"         # лаунчер із сервером — лише один
+WINDOW_MUTEX = "Local\\Nitor.Window"   # вікно програми — лише одне
 WINDOW_TITLE = APP_NAME
 
 
@@ -170,7 +210,7 @@ def single_instance(name: str):
 
 
 def find_app_window() -> int | None:
-    """Відкрите вікно SC DMX (вікно Qt із заголовком «SC DMX»)."""
+    """Відкрите вікно Nitor (вікно Qt із заголовком «Nitor»)."""
     import ctypes
     from ctypes import wintypes
     user32 = ctypes.windll.user32

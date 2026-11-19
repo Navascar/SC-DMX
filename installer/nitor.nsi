@@ -1,11 +1,11 @@
-; SC DMX — інсталятор для Windows (SC-DMX-Setup.exe).
+; Nitor — інсталятор для Windows (Nitor-Setup.exe).
 ;
 ; Збирається під час релізу (.github/workflows/release.yml):
-;   makensis -DVERSION=1.21.0 -DSRC=<тека з файлами програми> installer/sc-dmx.nsi
+;   makensis -DVERSION=1.21.0 -DSRC=<тека з файлами програми> installer/nitor.nsi
 ;
 ; Інсталятор містить усю програму. Він розпаковує її в тимчасову теку й відкриває вікно встановлення
 ; (installer/setup-gui.ps1), яке у фоні запускає install.ps1: той знаходить або встановлює Python,
-; копіює програму в %LOCALAPPDATA%\SC-DMX (налаштування зберігаються), ставить залежності й
+; копіює програму в %LOCALAPPDATA%\Nitor (налаштування зберігаються), ставить залежності й
 ; створює вибрані ярлики. Консоль не показується. Права адміністратора не потрібні.
 ;
 ; Uninstall.exe так само відкриває вікно видалення (installer/uninstall-gui.ps1): лише програма або
@@ -21,16 +21,16 @@ SetCompressor /SOLID lzma
   !define SRC ".."
 !endif
 !ifndef OUTFILE
-  !define OUTFILE "SC-DMX-Setup.exe"
+  !define OUTFILE "Nitor-Setup.exe"
 !endif
 
-!define APP "SC DMX"
-!define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\SC-DMX"
+!define APP "Nitor"
+!define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\Nitor"
 
 Name "${APP}"
 Caption "${APP} ${VERSION} — встановлення"
 OutFile "${OUTFILE}"
-InstallDir "$LOCALAPPDATA\SC-DMX"
+InstallDir "$LOCALAPPDATA\Nitor"
 RequestExecutionLevel user
 ShowInstDetails show
 BrandingText "${APP} ${VERSION}"
@@ -49,7 +49,7 @@ VIAddVersionKey /LANG=1058 "LegalCopyright" "${APP}"
 !define MUI_UNICON "${SRC}\dmxctl\static\icon.ico"
 
 ; Власних сторінок у інсталятора немає: він мовчки розпаковує програму й відкриває вікно
-; встановлення в стилі SC DMX (installer/setup-gui.ps1). Видалення теж має своє вікно
+; встановлення в стилі Nitor (installer/setup-gui.ps1). Видалення теж має своє вікно
 ; (installer/uninstall-gui.ps1, див. un.onInit); сторінка NSIS лишається тільки для тихого режиму /S.
 SilentInstall silent
 
@@ -65,7 +65,7 @@ SilentInstall silent
   ${EndIf}
 !macroend
 
-Section "SC DMX"
+Section "Nitor"
   InitPluginsDir
   SetOutPath "$PLUGINSDIR\app"
   File /r /x ".git" /x "__pycache__" /x ".venv" /x "installer" "${SRC}\*.*"
@@ -81,7 +81,7 @@ Section "SC DMX"
   RMDir /r "$PLUGINSDIR\app"
   ${If} $0 == 3
   ${OrIf} $0 == "error"
-    MessageBox MB_ICONSTOP "Не вдалося відкрити вікно встановлення SC DMX.$\r$\nПодробиці — у файлі %TEMP%\SC-DMX-install.log"
+    MessageBox MB_ICONSTOP "Не вдалося відкрити вікно встановлення Nitor.$\r$\nПодробиці — у файлі %TEMP%\Nitor-install.log"
     Abort
   ${EndIf}
   ${If} $0 != 0
@@ -96,7 +96,7 @@ Section "SC DMX"
   WriteRegStr HKCU "${UNINST_KEY}" "InstallLocation" "$INSTDIR"
   WriteRegStr HKCU "${UNINST_KEY}" "UninstallString" '"$INSTDIR\Uninstall.exe"'
   WriteRegStr HKCU "${UNINST_KEY}" "QuietUninstallString" '"$INSTDIR\Uninstall.exe" /S'
-  WriteRegStr HKCU "${UNINST_KEY}" "URLInfoAbout" "https://github.com/Navascar/SC-DMX"
+  WriteRegStr HKCU "${UNINST_KEY}" "URLInfoAbout" "https://github.com/Navascar/Nitor"
   WriteRegDWORD HKCU "${UNINST_KEY}" "NoModify" 1
   WriteRegDWORD HKCU "${UNINST_KEY}" "NoRepair" 1
 SectionEnd
@@ -125,7 +125,7 @@ Function un.onInit
   ${If} $0 == 3
   ${OrIf} $0 == "error"
     ; вікно не відкрилося — запитуємо звичайним повідомленням і видаляємо все, як раніше
-    MessageBox MB_YESNO|MB_ICONQUESTION "Видалити SC DMX разом із налаштуваннями, приладами й сценами?$\r$\nЩоб зберегти сцени, спершу збережіть їх у файли (меню сцени → «Зберегти у файл…»)." IDYES +2
+    MessageBox MB_YESNO|MB_ICONQUESTION "Видалити Nitor разом із налаштуваннями, приладами й сценами?$\r$\nЩоб зберегти сцени, спершу збережіть їх у файли (меню сцени → «Зберегти у файл…»)." IDYES +2
     Quit
     SetSilent silent   ; далі — розділ Uninstall без сторінок
     Return
@@ -136,17 +136,17 @@ FunctionEnd
 
 Section "Uninstall"
   ; програма має бути закрита, інакше файли зайняті
-  ; процеси Python з dmxctl / sc-dmx.pyw (порт не годиться: SC DMX може працювати на 8081+);
+  ; процеси Python з dmxctl / nitor.pyw (порт не годиться: Nitor може працювати на 8081+);
   ; сам PowerShell теж містить «dmxctl» у рядку команди, тому дивимося лише на python*.exe
-  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -Command "try { if (Get-CimInstance Win32_Process | Where-Object { $$_.Name -like $\'python*$\' -and $$_.CommandLine -match $\'dmxctl|sc-dmx\.pyw$\' }) { exit 1 } } catch { }; exit 0"'
+  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -Command "try { if (Get-CimInstance Win32_Process | Where-Object { $$_.Name -like $\'python*$\' -and $$_.CommandLine -match $\'dmxctl|nitor\.pyw|sc-dmx\.pyw$\' }) { exit 1 } } catch { }; exit 0"'
   Pop $0
   Pop $1   ; вивід команди — не потрібен
   ${If} $0 == 1
-    MessageBox MB_ICONEXCLAMATION "SC DMX зараз відкрито. Закрийте вікно програми й запустіть видалення ще раз." /SD IDOK
+    MessageBox MB_ICONEXCLAMATION "Nitor зараз відкрито. Закрийте вікно програми й запустіть видалення ще раз." /SD IDOK
     Abort
   ${EndIf}
-  Delete "$DESKTOP\SC DMX.lnk"
-  Delete "$SMPROGRAMS\SC DMX.lnk"
+  Delete "$DESKTOP\Nitor.lnk"
+  Delete "$SMPROGRAMS\Nitor.lnk"
   SetOutPath "$TEMP"
   RMDir /r "$INSTDIR"
   DeleteRegKey HKCU "${UNINST_KEY}"

@@ -592,6 +592,10 @@ def test_scene_file_busy_addresses_and_bad_file(tmp_path):
     b.handle({"cmd": "import_scene", "data": a.export_scene("S2")})
     added = [f for f in b.fixtures if f.address == 100][0]
     assert b.profiles[added.profile] == ["dim", "r", "g", "b", "zero"] and added.profile in b.menu_profiles()
+    # файл сцени (.scdmx) з часів, коли програма називалася SC DMX, теж відкривається
+    old = {**a.export_scene("S2"), "format": "sc-dmx-scene", "name": "Стара"}
+    b.handle({"cmd": "import_scene", "data": old})
+    assert "Стара" in b.scenes
 
 
 def test_scene_file_http(tmp_path):
@@ -609,8 +613,8 @@ def test_scene_file_http(tmp_path):
             r = await c.get("/api/scene", params={"name": "Зелений / сад"})
             assert r.status == 200
             assert "filename*=UTF-8''" in r.headers["Content-Disposition"]
-            assert "%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%B8%D0%B9%20_%20%D1%81%D0%B0%D0%B4.scdmx" in r.headers["Content-Disposition"]
-            assert (await r.json())["format"] == "sc-dmx-scene"
+            assert "%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%B8%D0%B9%20_%20%D1%81%D0%B0%D0%B4.nitor" in r.headers["Content-Disposition"]
+            assert (await r.json())["format"] == "nitor-scene"
             assert (await c.get("/api/scene", params={"name": "нема"})).status == 404
     asyncio.run(run())
 
@@ -661,8 +665,8 @@ def test_update_zip_slip_rejected(tmp_path):
     (app / "dmxctl" / "__init__.py").write_text("old")
     z = tmp_path / "u.zip"
     with zipfile.ZipFile(z, "w") as zf:
-        zf.writestr("SC-DMX/dmxctl/__init__.py", "new")
-        zf.writestr("../sc-dmx-evil/x.txt", "pwn")     # сусідня тека з тим самим префіксом
+        zf.writestr("Nitor/dmxctl/__init__.py", "new")
+        zf.writestr("../nitor-evil/x.txt", "pwn")     # сусідня тека з тим самим префіксом
     with pytest.raises(RuntimeError, match="небезпечний шлях"):
         install_from_zip(z, app)
     assert (app / "dmxctl" / "__init__.py").read_text() == "old"

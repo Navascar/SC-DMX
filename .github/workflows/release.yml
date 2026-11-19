@@ -1,6 +1,7 @@
 # Тести на кожен push; якщо версія в dmxctl/__init__.py нова — створюється реліз.
-# Програма SC DMX бачить новий реліз і пропонує користувачу оновитися.
-# До релізу додаються SC-DMX-Setup.exe (інсталятор) і SC-DMX.zip (архів, з нього оновлюється програма).
+# Програма Nitor бачить новий реліз і пропонує користувачу оновитися.
+# До релізу додаються Nitor-Setup.exe (інсталятор) і Nitor.zip (архів, з нього оновлюється програма).
+# SC-DMX.zip — та сама копія Nitor.zip для версій, випущених ще під назвою SC DMX: вони шукають архів за цим іменем.
 name: Tests & Release
 
 on:
@@ -39,19 +40,21 @@ jobs:
           if git rev-parse "v$VER" >/dev/null 2>&1; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
       - name: Архів
         if: steps.ver.outputs.exists == 'false'
-        run: git archive --format=zip --prefix=SC-DMX/ -o SC-DMX.zip HEAD
-      - name: Інсталятор (SC-DMX-Setup.exe)
+        run: |
+          git archive --format=zip --prefix=Nitor/ -o Nitor.zip HEAD
+          cp Nitor.zip SC-DMX.zip
+      - name: Інсталятор (Nitor-Setup.exe)
         if: steps.ver.outputs.exists == 'false'
         run: |
           sudo apt-get update -q && sudo apt-get install -y -q nsis
           mkdir -p build/app && git archive HEAD | tar -x -C build/app
-          makensis -V2 -DVERSION=${{ steps.ver.outputs.version }} -DSRC="$PWD/build/app" -DOUTFILE="$PWD/SC-DMX-Setup.exe" installer/sc-dmx.nsi
+          makensis -V2 -DVERSION=${{ steps.ver.outputs.version }} -DSRC="$PWD/build/app" -DOUTFILE="$PWD/Nitor-Setup.exe" installer/nitor.nsi
       - name: Реліз
         if: steps.ver.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           NOTES=$(awk -v v="## ${{ steps.ver.outputs.version }}" '$0==v{f=1;next} /^## /{f=0} f' CHANGELOG.md)
-          [ -z "$NOTES" ] && NOTES="SC DMX ${{ steps.ver.outputs.version }}"
-          gh release create "v${{ steps.ver.outputs.version }}" SC-DMX-Setup.exe SC-DMX.zip \
-            --title "SC DMX ${{ steps.ver.outputs.version }}" --notes "$NOTES"
+          [ -z "$NOTES" ] && NOTES="Nitor ${{ steps.ver.outputs.version }}"
+          gh release create "v${{ steps.ver.outputs.version }}" Nitor-Setup.exe Nitor.zip SC-DMX.zip \
+            --title "Nitor ${{ steps.ver.outputs.version }}" --notes "$NOTES"

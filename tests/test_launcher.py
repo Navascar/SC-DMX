@@ -2,7 +2,7 @@ import http.server
 import socket
 import threading
 
-from dmxctl.__main__ import find_scdmx_port, free_port, is_scdmx
+from dmxctl.__main__ import find_nitor_port, free_port, is_nitor
 
 
 def _serve(body: bytes):
@@ -20,14 +20,14 @@ def _serve(body: bytes):
     return srv
 
 
-def test_foreign_app_on_port_is_not_scdmx():
-    """Інший застосунок на порту — не SC DMX: програма має запуститися на іншому порту, а не вважати себе відкритою."""
+def test_foreign_app_on_port_is_not_nitor():
+    """Інший застосунок на порту — не Nitor: програма має запуститися на іншому порту, а не вважати себе відкритою."""
     other = _serve(b"<html><title>Other</title></html>")
-    ours = _serve(b"<!doctype html><title>SC DMX</title>")
+    ours = _serve(b"<!doctype html><title>Nitor</title>")
     try:
-        assert not is_scdmx(other.server_port)
-        assert is_scdmx(ours.server_port)
-        assert find_scdmx_port(other.server_port, tries=1) is None
+        assert not is_nitor(other.server_port)
+        assert is_nitor(ours.server_port)
+        assert find_nitor_port(other.server_port, tries=1) is None
     finally:
         other.shutdown()
         ours.shutdown()

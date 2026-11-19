@@ -26,8 +26,9 @@ UNDO_MERGE_S = 1.0   # серія однакових команд (рух пов
 MERGEABLE = {"set_color", "set_master", "set_effect", "preset"}   # команди повзунків
 NO_UNDO = {"undo", "redo", "raw_set", "raw_clear", "set_output", "strobe", "set_hotkeys"}
 STROBE_LEVEL = 200   # значення каналу строба для кнопки «Строб», якщо в приладу строб не задано
-SCENE_FORMAT = "sc-dmx-scene"    # файл сцени (.scdmx) для перенесення між комп'ютерами
-SCENE_EXT = ".scdmx"
+SCENE_FORMAT = "nitor-scene"    # файл сцени (.nitor) для перенесення між комп'ютерами
+SCENE_EXT = ".nitor"
+LEGACY_SCENE_FORMATS = {"sc-dmx-scene"}   # файли сцен з часів, коли програма називалася SC DMX (.scdmx)
 
 # Статичні кольори за замовчуванням. hex — для RGB-приладів; для приладів
 # з білим каналом використовується hex_w + w (чистіший білий від W-світлодіода).
@@ -803,8 +804,8 @@ class Engine:
         назвою й каналами. Прилад, якого тут немає, додається на ту саму адресу, якщо вона вільна.
         """
         data = m.get("data")
-        if not isinstance(data, dict) or data.get("format") != SCENE_FORMAT:
-            raise ValueError("це не файл сцени SC DMX")
+        if not isinstance(data, dict) or data.get("format") not in {SCENE_FORMAT, *LEGACY_SCENE_FORMATS}:
+            raise ValueError("це не файл сцени Nitor")
         if not isinstance(data.get("fixtures"), list):
             raise ValueError("файл сцени пошкоджено")
         used: set[str] = set()
